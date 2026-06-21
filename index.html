@@ -168,15 +168,20 @@
   .row2 { display: flex; gap: 10px; }
   .row2 .btn { width: auto; flex: 1; }
 
-  .seg { display: flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
-  .seg-btn {
-    flex: 1; background: var(--panel); border: none; padding: 11px 8px;
-    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink2);
-    cursor: pointer; transition: background .15s, color .15s;
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  #wifi-mode-label { font-size: 12px; color: var(--ink2); flex: 1; line-height: 1.4; }
+  .toggle {
+    position: relative; width: 48px; height: 26px; border-radius: 999px; flex-shrink: 0;
+    border: 1px solid var(--rule); background: var(--panel); cursor: pointer;
+    transition: background .2s, border-color .2s;
   }
-  .seg-btn + .seg-btn { border-left: 1px solid var(--rule); }
-  .seg-btn.active { background: var(--ink); color: var(--paper); }
-  .seg-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--ink3); transition: transform .2s, background .2s;
+  }
+  .toggle.on { background: var(--brass); border-color: var(--brass-d); }
+  .toggle.on::after { transform: translateX(22px); background: var(--paper); }
+  .toggle:disabled { opacity: .5; cursor: not-allowed; }
 
   #progress-wrap { display: none; }
   .bar { height: 8px; background: var(--panel); border: 1px solid var(--rule); border-radius: 999px; overflow: hidden; }
@@ -273,16 +278,6 @@
     </div>
 
     <div>
-      <div class="sub-label" style="margin-bottom:10px;">Network mode</div>
-      <div class="seg" id="wifi-seg">
-        <button type="button" class="seg-btn" id="wifi-auto">Auto (Wi-Fi → AP)</button>
-        <button type="button" class="seg-btn" id="wifi-ap">Access Point</button>
-      </div>
-      <div class="status-row"><span class="dot" id="wifi-dot"></span><span id="wifi-msg">Checking network mode…</span></div>
-      <div class="note" style="margin-top:8px;">Access Point restarts the plotter onto its own “FluidNC” Wi-Fi (http://192.168.0.1) and <strong>stays there across power-offs</strong> until you tap Auto. Auto rejoins your Wi-Fi and falls back to AP only if that fails. The plotter must be reachable directly for this to work.</div>
-    </div>
-
-    <div>
       <div class="sub-label" style="margin-bottom:10px;">Plotter controls</div>
       <div class="status-row" style="margin-top:0;margin-bottom:12px;">
         <span class="dot" id="settings-plotter-dot"></span><span id="settings-plotter-msg">Checking plotter…</span>
@@ -295,7 +290,17 @@
         <button class="btn btn-ghost" id="ctrl-zero">Set X0 Y0</button>
         <button class="btn btn-ghost" id="ctrl-restart">Restart</button>
       </div>
+      <button class="btn btn-ghost" id="ctrl-clear-alarm" style="margin-top:10px;width:100%;">Clear alarm</button>
       <div class="note" style="margin-top:10px;">Plotter commands go through the studio (your PC). Stop/pause work while drawing.</div>
+    </div>
+
+    <div>
+      <div class="sub-label" style="margin-bottom:10px;">WiFi mode</div>
+      <div class="toggle-row">
+        <span id="wifi-mode-label">Checking…</span>
+        <button type="button" class="toggle" id="wifi-toggle" role="switch" aria-checked="false" aria-label="WiFi mode"></button>
+      </div>
+      <div class="note">Off = home network (tries your WiFi first). On = hotspot only. Restart always restores home-network mode.</div>
     </div>
 
     <button class="btn btn-ghost" data-close="settings-modal">Done</button>
@@ -369,7 +374,7 @@ const BED_MM = 150;
 const openModal  = id => $(id).classList.add('on');
 const closeModal = id => $(id).classList.remove('on');
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
-$('settings-btn').addEventListener('click', () => { openModal('settings-modal'); refreshSettingsPlotter(); refreshWifiMode(); });
+$('settings-btn').addEventListener('click', () => { openModal('settings-modal'); refreshSettingsPlotter(); });
 
 function studioHostLooksLocal(raw) {
   const h = raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').split(':')[0].toLowerCase();
@@ -394,13 +399,29 @@ function tokUrl(u) {
   return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(t);
 }
 function defaultPlotterHost() {
-  // Adopt the page's own host as the plotter ONLY when the page was served from
-  // the plotter itself (a private LAN address). On a public host (GitHub Pages /
-  // tunnel) the page host is NOT the plotter, so return blank and let the proxy's
-  // PLOTTER_HOST default reach the plotter for us.
+  // Served from the plotter (http://<plotter>/) -> that host IS the plotter.
+  // On a public host (GitHub Pages / tunnel) pagePlotterHost() returns '' and we
+  // fall back to the plotter's LAN IP, which the studio proxy can reach (and the
+  // proxy's own PLOTTER_HOST default also covers a blank host).
+  const h = pagePlotterHost();
+  if (h) return h;
+  return '192.168.0.47';
+}
+// When the app is opened from the plotter itself (http://<plotter>/), that host
+// is the plotter address — AP (192.168.0.1) or home WiFi (192.168.0.47).
+function pagePlotterHost() {
+  if (!/^https?:$/.test(location.protocol)) return '';
   const h = location.hostname;
-  if (h && studioHostLooksLocal(h) && h !== 'localhost' && h !== '127.0.0.1') return h;
-  return '';
+  if (!h || h === 'localhost' || h === '127.0.0.1') return '';
+  return h;
+}
+function applyAutoPlotterAddr(host) {
+  if (!host) return;
+  const cur = ($('plotter-addr').value || '').trim()
+    .replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:.*$/, '');
+  if (cur === host) return;
+  $('plotter-addr').value = host;
+  try { localStorage.setItem('plotterbot_plotter', host); } catch (e) {}
 }
 function plotterHost() {
   const v = ($('plotter-addr').value || '').trim()
@@ -431,72 +452,152 @@ async function plotterWifiCmd(cmd) {
   } finally { clearTimeout(t); }
 }
 
-// WiFi/Mode comes from [ESP400]: 0=Off, 1=STA, 2=AP, 3=STA>AP.
-function parseWifiMode(esp400text) {
-  const m = (esp400text || '').match(/"P":"WiFi\/Mode"[\s\S]*?"V":"(\d)"/);
-  const v = m ? m[1] : '';
-  if (v === '3') return 'auto';
-  if (v === '2') return 'ap';
-  if (v === '1') return 'sta';
-  if (v === '0') return 'off';
-  return 'unknown';
-}
-
-function renderWifiMode(mode) {
-  const auto = $('wifi-auto'), ap = $('wifi-ap'), dot = $('wifi-dot'), msg = $('wifi-msg');
-  auto.classList.toggle('active', mode === 'auto');
-  ap.classList.toggle('active', mode === 'ap');
-  if (mode === 'auto')      { dot.style.background = 'var(--green)'; msg.textContent = 'Auto — tries your Wi-Fi, falls back to its own AP.'; }
-  else if (mode === 'ap')   { dot.style.background = 'var(--brass)'; msg.textContent = 'Access Point — broadcasting “FluidNC”.'; }
-  else if (mode === 'sta')  { dot.style.background = 'var(--green)'; msg.textContent = 'Station — joins your Wi-Fi only.'; }
-  else if (mode === 'off')  { dot.style.background = 'var(--ink3)';  msg.textContent = 'Wi-Fi is off.'; }
-  else                      { dot.style.background = 'var(--ink3)';  msg.textContent = 'Mode unknown — could not read the plotter.'; }
-}
-
-async function refreshWifiMode() {
-  $('wifi-msg').textContent = 'Checking network mode…';
-  try { renderWifiMode(parseWifiMode(await plotterWifiCmd('[ESP400]'))); }
-  catch (e) { renderWifiMode('unknown'); }
-}
-
-// value: 2 = AP, 3 = STA>AP. Writes the NVS setting via ESP3D, then reboots so
-// the new WiFi mode takes effect (FluidNC applies WiFi changes only on restart).
-async function switchWifiMode(value, modeKey, busyMsg, doneMsg) {
-  $('wifi-auto').disabled = $('wifi-ap').disabled = true;
-  $('wifi-msg').textContent = busyMsg;
-  // The write happens before the reboot, so it returns cleanly — verify it before
-  // claiming success, otherwise an unreachable plotter would still show the new mode.
-  let wrote = false;
-  try {
-    const rep = await plotterWifiCmd('[ESP401]P=WiFi/Mode T=B V=' + value + ' json=yes');
-    wrote = !/error|fail/i.test(rep || '');
-  } catch (e) {}
-  if (!wrote) {
-    $('wifi-dot').style.background = 'var(--red)';
-    $('wifi-msg').textContent = 'Could not change the mode — check the plotter is reachable directly.';
-    $('wifi-auto').disabled = $('wifi-ap').disabled = false;
-    return;
-  }
-  // The reboot drops the connection mid-request, so a failure here is expected.
-  try { await plotterWifiCmd('[ESP444]RESTART'); } catch (e) {}
-  renderWifiMode(modeKey);
-  $('wifi-msg').textContent = doneMsg;
-  $('wifi-auto').disabled = $('wifi-ap').disabled = false;
-}
-
+// ── Direct-to-plotter link (browser ⇄ FluidNC over its WebSocket) ───────────
+// When this page is SERVED FROM THE PLOTTER (same-origin), the browser talks to
+// FluidNC directly: its WS on port 80 is a full bidirectional GRBL channel
+// (send a line → 'ok'/'error:N' streams back). This is the "device as bridge"
+// mode — photo→G-code still goes to the studio over the internet, but the
+// finished G-code is streamed line-by-line straight to the plotter from this
+// device, so the studio never needs to reach the plotter. The board's flash is
+// only ~16 KB so we stream (like the proxy's telnet path), never upload a file.
+// Falls back to the studio /plot relay when NOT served from the plotter.
 let plotterState = 'unknown';
-let statusPromise = null;
 
-// Coalesce concurrent status polls (the 8 s timer, the settings-modal timer and
-// the plot-progress loop can all fire at once) onto a single in-flight request,
-// so callers still await a fresh read instead of getting a stale snapshot.
-function fetchPlotterStatus() {
-  if (statusPromise) return statusPromise;
-  statusPromise = _fetchPlotterStatus().finally(() => { statusPromise = null; });
-  return statusPromise;
+const PL = {
+  ws: null, ready: false, mode: false,   // mode=true => direct
+  host: '', pending: [], lastState: 'unknown', cancel: false, sdPercent: null,
+};
+
+function plotterWsUrl(host) {
+  return (location.protocol === 'https:' ? 'wss://' : 'ws://') + host + '/';
 }
 
-async function _fetchPlotterStatus() {
+function plParseState(line) {            // "<Hold:0|WPos:...>" -> "Hold"
+  const i = line.indexOf('<');
+  if (i < 0) return null;
+  const s = line.slice(i + 1).split('|')[0].split('>')[0].split(':')[0].trim();
+  return s || null;
+}
+
+function plOnMessage(ev) {
+  const data = typeof ev.data === 'string' ? ev.data : '';
+  if (!data) return;
+  data.split('\n').forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    const st = plParseState(line);
+    if (st) {
+      PL.lastState = st; plotterState = st;
+      if (st === 'Idle') PL.sdPercent = null;       // run finished/aborted
+    }
+    const sd = line.match(/\bSD:([\d.]+)/);          // "<Run|...|SD:42.5,file.gcode>"
+    if (sd) PL.sdPercent = parseFloat(sd[1]);
+    const low = line.toLowerCase();
+    if (low === 'ok' || low.startsWith('error')) {
+      const p = PL.pending.shift();
+      if (p) { clearTimeout(p.timer); low === 'ok' ? p.resolve('ok') : p.reject(new Error(line)); }
+    }
+  });
+}
+
+function plConnect(host) {
+  return new Promise(resolve => {
+    let ws;
+    try { ws = new WebSocket(plotterWsUrl(host)); }
+    catch (e) { resolve(false); return; }
+    let settled = false;
+    const done = ok => { if (!settled) { settled = true; resolve(ok); } };
+    const to = setTimeout(() => { try { ws.close(); } catch (e) {} done(false); }, 6000);
+    ws.onopen = () => { clearTimeout(to); PL.ws = ws; PL.ready = true; PL.host = host; done(true); };
+    ws.onmessage = plOnMessage;
+    ws.onclose = () => { PL.ready = false; if (PL.ws === ws) PL.ws = null; };
+    ws.onerror = () => { clearTimeout(to); done(false); };
+  });
+}
+
+async function plEnsure() {
+  if (PL.ready && PL.ws && PL.ws.readyState === 1) return true;
+  if (!PL.host) return false;
+  return await plConnect(PL.host);
+}
+
+function plSendRaw(s) {
+  if (PL.ws && PL.ws.readyState === 1) { PL.ws.send(s); return true; }
+  return false;
+}
+
+// Send one line; resolve on 'ok', reject on 'error:N'. FluidNC acks each line in
+// order, so a FIFO queue of resolvers matches replies to sends. Long timeout so
+// a feed-hold (pause) — which stalls 'ok' until resume — doesn't fail the job.
+function plSendLine(line, timeoutMs = 300000) {
+  return new Promise(async (resolve, reject) => {
+    if (!(await plEnsure())) { reject(new Error('plotter link down')); return; }
+    const timer = setTimeout(() => {
+      const i = PL.pending.findIndex(p => p.timer === timer);
+      if (i >= 0) PL.pending.splice(i, 1);
+      reject(new Error('timed out waiting for ok'));
+    }, timeoutMs);
+    PL.pending.push({ resolve, reject, timer });
+    if (!plSendRaw(line + '\n')) { clearTimeout(timer); PL.pending.pop(); reject(new Error('send failed')); }
+  });
+}
+
+function plRealtime(ch) {                 // realtime char: ?, !, ~, 0x18 — no ok
+  if (typeof ch === 'number') { if (ch === 0x18) PL.cancel = true; return plSendRaw(String.fromCharCode(ch)); }
+  if (ch === '\x18') PL.cancel = true;
+  return plSendRaw(ch);
+}
+
+async function plStatus() {
+  if (!(await plEnsure())) return 'offline';
+  plRealtime('?');                        // no newline => no stray 'ok'
+  await new Promise(r => setTimeout(r, 250));
+  return PL.lastState || 'unknown';
+}
+
+// SD-card autonomous run: upload the whole G-code to the plotter's SD over WiFi,
+// then $SD/Run so the plotter draws on its own — the phone can disconnect, lock,
+// walk away. (Chosen over line-streaming so you don't have to stay connected for
+// the whole draw. If the SD card has a problem we surface a clear warning rather
+// than silently streaming instead.)
+const SD_FILE = 'plotterbot.gcode';
+
+async function plSdAvailable() {
+  try {
+    const r = await fetch('/upload', { cache: 'no-store' });   // same-origin (served from plotter)
+    const j = await r.json();
+    return !(j.status && /no sd/i.test(j.status));             // {"status":"No SD card"} => false
+  } catch (e) { return false; }
+}
+
+async function plSdUpload(gcode, name) {
+  const fd = new FormData();
+  fd.append('path', '/');
+  fd.append('myfile', new Blob([gcode], { type: 'text/plain' }), name);
+  let j;
+  try {
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) { throw new Error('upload failed (' + e.message + ')'); }
+  if (j.status && /no sd/i.test(j.status)) throw new Error('no SD card');
+  if (!(j.files || []).some(f => f.name === name)) throw new Error('upload not confirmed on SD');
+}
+
+async function plSdRun(gcode) {
+  if (!(await plEnsure())) throw new Error('plotter link down');
+  if (!(await plSdAvailable())) throw new Error('no SD card');
+  await plSdUpload(gcode, SD_FILE);
+  plRealtime('?');                                   // clear alarm so motion is allowed
+  await new Promise(r => setTimeout(r, 250));
+  if (PL.lastState === 'Alarm') { try { await plSendLine('$X', 8000); } catch (e) {} }
+  await plSendLine('$SD/Run=/' + SD_FILE, 15000);    // ok = job started; it now runs autonomously
+}
+
+function plStop() { PL.cancel = true; plRealtime(0x18); }  // soft reset: halt + pen up (aborts SD run too)
+
+async function fetchPlotterStatus() {
+  if (PL.mode) { const st = await plStatus(); plotterState = st; return st; }
   const base = studioBase(), host = plotterHost();
   // host may be blank for a remote guest (page served from a public host); the
   // proxy fills in its PLOTTER_HOST default, so only the proxy address is required.
@@ -515,37 +616,69 @@ async function _fetchPlotterStatus() {
 }
 
 async function plotterCmd(cmd) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 8000);
-  let r;
-  try {
-    r = await fetch(tokUrl(studioBase() + '/plotter_command'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host: plotterHost(), cmd }),
-      signal: c.signal,
-    });
-  } finally { clearTimeout(t); }
+  if (PL.mode) { await plSendLine(cmd, 15000); return 'ok'; }
+  const r = await fetch(tokUrl(studioBase() + '/plotter_command'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host: plotterHost(), cmd }),
+  });
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'command failed');
   return j.reply;
 }
 
 async function plotterRealtime(ch) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 8000);
-  let r;
-  try {
-    r = await fetch(tokUrl(studioBase() + '/plotter_realtime'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host: plotterHost(), char: ch }),
-      signal: c.signal,
-    });
-  } finally { clearTimeout(t); }
+  if (PL.mode) { plRealtime(ch); return ''; }
+  const r = await fetch(tokUrl(studioBase() + '/plotter_realtime'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host: plotterHost(), char: ch }),
+  });
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'realtime failed');
   return j.reply;
+}
+
+// FluidNC $ settings / [ESP] commands — HTTP on direct link, studio telnet relay otherwise.
+async function fluidncPlain(cmd) {
+  if (PL.mode) {
+    const r = await fetch('/command?plain=' + encodeURIComponent(cmd), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return (await r.text()).trim();
+  }
+  const base = studioBase(), host = plotterHost();
+  if (!base || !host) throw new Error('Set studio and plotter addresses first.');
+  const r = await fetch(tokUrl(base + '/plotter_command'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, cmd }),
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'command failed');
+  return (j.reply || '').trim();
+}
+
+function parseWifiMode(reply) {
+  const t = (reply || '').toUpperCase();
+  if (t.includes('STA>AP')) return 'sta';
+  if (/\bAP\b/.test(t) && !t.includes('STA')) return 'ap';
+  if (t.includes('STA')) return 'sta';
+  return 'unknown';
+}
+
+async function fetchWifiMode() {
+  try { return parseWifiMode(await fluidncPlain('$WiFi/Mode')); }
+  catch (e) { return 'unknown'; }
+}
+
+function renderWifiToggle(mode) {
+  const btn = $('wifi-toggle'), label = $('wifi-mode-label');
+  const isAp = mode === 'ap';
+  btn.classList.toggle('on', isAp);
+  btn.setAttribute('aria-checked', isAp ? 'true' : 'false');
+  if (mode === 'ap') label.textContent = 'Hotspot (access point)';
+  else if (mode === 'sta') label.textContent = 'Home network (station)';
+  else label.textContent = 'WiFi mode unknown';
 }
 
 function renderSettingsPlotter(st) {
@@ -562,6 +695,17 @@ function renderSettingsPlotter(st) {
 
 async function checkPlotter() {
   const dot = $('plotter-dot'), msg = $('plotter-msg');
+  if (PL.mode) {
+    const st = await fetchPlotterStatus();
+    if (st === 'offline') { dot.style.background = 'var(--red)'; msg.textContent = 'Plotter link lost — reconnecting…'; }
+    else {
+      const sd = plottingActive ? '' : (await plSdAvailable() ? '' : '  ⚠ no SD card');
+      dot.style.background = (st === 'Idle' && !sd) ? 'var(--green)' : 'var(--brass)';
+      msg.textContent = 'Plotter (direct) — ' + st + sd;
+    }
+    renderSettingsPlotter(st);
+    return;
+  }
   const host = plotterHost(), base = studioBase();
   if (!base) {
     dot.style.background = 'var(--brass)';
@@ -584,7 +728,10 @@ async function checkPlotter() {
 }
 
 async function refreshSettingsPlotter() {
+  const h = pagePlotterHost();
+  if (h) applyAutoPlotterAddr(h);
   await checkPlotter();
+  if ($('settings-modal').classList.contains('on')) renderWifiToggle(await fetchWifiMode());
 }
 
 try {
@@ -595,9 +742,15 @@ try {
 } catch (e) {}
 try {
   const sp = localStorage.getItem('plotterbot_proxy'); if (sp) $('proxy-addr').value = sp;
-  const pl = localStorage.getItem('plotterbot_plotter'); if (pl) $('plotter-addr').value = pl;
 } catch (e) {}
-if (!$('plotter-addr').value) $('plotter-addr').value = defaultPlotterHost();
+const pageHost = pagePlotterHost();
+if (pageHost) applyAutoPlotterAddr(pageHost);
+else {
+  try {
+    const pl = localStorage.getItem('plotterbot_plotter'); if (pl) $('plotter-addr').value = pl;
+  } catch (e) {}
+  if (!$('plotter-addr').value) $('plotter-addr').value = defaultPlotterHost();
+}
 
 let proxyTimer = null;
 let plotterTimer = null;
@@ -616,8 +769,19 @@ $('open-fluidnc-btn').addEventListener('click', () => {
   // Stock FluidNC/ESP3D dashboard is served at /fluidnc.html (root is the phone app).
   window.open(plotterHttp() + '/fluidnc.html', '_blank', 'noopener');
 });
-checkPlotter();
-setInterval(() => { if (!document.hidden) checkPlotter(); }, 8000);
+// Direct mode = this page is served FROM the plotter (same-origin WS speaks
+// FluidNC). Loaded from anywhere else (studio/gist/file), the WS won't open and
+// we stay on the studio relay.
+async function detectDirect() {
+  const h = pagePlotterHost();
+  if (!h) return false;
+  PL.host = h;
+  applyAutoPlotterAddr(h);
+  if (await plConnect(h)) { PL.mode = true; return true; }
+  return false;
+}
+detectDirect().then(() => checkPlotter());
+setInterval(checkPlotter, 8000);
 
 async function studioAlive(base) {
   try {
@@ -910,22 +1074,48 @@ $('start-btn').addEventListener('click', async () => {
   $('gate-err').textContent = '';
   $('start-btn').disabled = true;
 
+  const st = await fetchPlotterStatus();
+  if (st === 'Run' || st === 'Hold' || st === 'Jog') {
+    $('gate-err').textContent = 'A drawing is already in progress. Please wait until it finishes.';
+    $('start-btn').disabled = false;
+    return;
+  }
+  // Relay mode needs an Idle plotter; direct mode clears Alarm itself ($X) so we
+  // only block when it's actually busy (handled above).
+  if (!PL.mode && st !== 'Idle') {
+    $('gate-err').textContent = 'Plotter is not ready (' + st + '). Check settings if you need to stop or restart it.';
+    $('start-btn').disabled = false;
+    return;
+  }
+
+  // Direct mode: this device is the bridge. Upload the G-code to the plotter's SD
+  // card over WiFi, then $SD/Run so it draws autonomously — you can then disconnect.
+  if (PL.mode) {
+    if (!(await plSdAvailable())) {
+      $('gate-err').textContent = '⚠ No SD card detected on the plotter. Plotting uses the SD card — check the card is inserted and the plotter was restarted after inserting it.';
+      $('start-btn').disabled = false;
+      return;
+    }
+    closeGate();
+    progressStart();
+    $('progress-text').textContent = 'Sending to plotter…';
+    try {
+      await plSdRun(gcodeText);
+    } catch (e) {
+      finishPlotting('⚠ SD card problem: ' + e.message + '. Drawing not started — check the SD card.', true);
+      return;
+    }
+    startSdMonitor();          // job is now running on the plotter; phone may disconnect
+    return;
+  }
+
+  // Relay mode: hand the G-code to the studio, which streams it over the LAN.
   const base = studioBase();
   if (!base) {
     $('gate-err').textContent = 'Set the studio address in Settings first.';
     $('start-btn').disabled = false;
     return;
   }
-
-  const st = await fetchPlotterStatus();
-  if (st !== 'Idle') {
-    $('gate-err').textContent = st === 'Run' || st === 'Hold' || st === 'Jog'
-      ? 'A drawing is already in progress. Please wait until it finishes.'
-      : 'Plotter is not ready (' + st + '). Check settings if you need to stop or restart it.';
-    $('start-btn').disabled = false;
-    return;
-  }
-
   try {
     await plotterCmd('G10 L20 P1 X0 Y0');
   } catch (e) {
@@ -979,13 +1169,37 @@ function finishPlotting(msg, isError) {
   updatePauseBtn();
 }
 
-function beginProgress() {
+function progressStart() {
   $('progress-wrap').style.display = 'block';
   $('progress-bar').style.width = '0%';
   $('progress-text').textContent = 'Drawing…';
   $('progress-text').classList.remove('err-text');
   lockControls(true);
-
+}
+function progressSet(pct) {
+  $('progress-bar').style.width = pct + '%';
+  $('progress-text').textContent = 'Drawing… ' + pct + '%';
+}
+function startSdMonitor() {
+  // The plotter is now drawing from its SD card on its own. If the phone stays
+  // connected we poll status for % + completion; if it disconnects, the draw just
+  // continues and the phone simply stops tracking it.
+  $('progress-text').textContent = 'Drawing… (you can put the phone down)';
+  let sawRun = false;
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = setInterval(async () => {
+    const st = await plStatus();                 // sends ? (reconnects if needed)
+    if (st === 'offline') { $('progress-text').textContent = 'Plotter drawing — phone link dropped (reconnecting…)'; return; }
+    if (st === 'Run' || st === 'Hold' || st === 'Jog' || PL.sdPercent != null) sawRun = true;
+    if (PL.sdPercent != null) progressSet(Math.min(100, Math.round(PL.sdPercent)));
+    updatePauseBtn();
+    if (sawRun && st === 'Idle') { $('progress-bar').style.width = '100%'; finishPlotting('Done.', false); }
+    else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+  }, 1500);
+}
+function beginProgress() {
+  progressStart();
+  const base = studioBase();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(async () => {
     const base = studioBase();   // re-read each tick in case the tunnel fails over
@@ -1032,9 +1246,15 @@ function updatePauseBtn() {
 
 $('ctrl-stop').addEventListener('click', async () => {
   if (!confirm('Stop the current drawing?')) return;
-  // '!' halts motion immediately; soft reset (0x18) then flushes FluidNC's
-  // planner buffer AND breaks the studio's stream loop (its next line errors),
-  // so the job actually stops instead of resuming on the next '~'.
+  if (PL.mode) {
+    plStop();                       // soft reset: cancels the stream, halts, pen up
+    if (plottingActive) finishPlotting('Stopped.', true);
+    refreshSettingsPlotter();
+    return;
+  }
+  // Studio-relay path: '!' halts motion immediately; soft reset (0x18) then flushes
+  // FluidNC's planner buffer AND breaks the studio's stream loop (its next line
+  // errors), so the job actually stops instead of resuming on the next '~'.
   //
   // The reset alone is not enough to *guarantee* the pen is up: disabling the
   // spindle can drop the BESC PWM entirely and let the servo droop. So after
@@ -1072,26 +1292,42 @@ $('ctrl-zero').addEventListener('click', async () => {
 
 $('ctrl-restart').addEventListener('click', async () => {
   if (!confirm('Restart the plotter? Any in-progress drawing will be cancelled.')) return;
+  try { await fluidncPlain('$WiFi/Mode=STA>AP'); } catch (e) {}
   try { await plotterRealtime(String.fromCharCode(24)); } catch (e) {}
   await new Promise(r => setTimeout(r, 1200));
   if (plottingActive) finishPlotting('Plotter restarted.', true);
   refreshSettingsPlotter();
 });
 
-$('wifi-ap').addEventListener('click', async () => {
-  if ($('wifi-ap').classList.contains('active') || $('wifi-ap').disabled) return;
-  if (!confirm('Switch the plotter to Access Point mode?\n\nIt will restart and leave your Wi-Fi. Connect your phone to the "FluidNC" network and open http://192.168.0.1 to reach it. It stays in AP mode (even after power-off) until you tap Auto.')) return;
-  await switchWifiMode(2, 'ap',
-    'Switching to Access Point and restarting…',
-    'Restarting in AP mode. Connect to the “FluidNC” Wi-Fi, then open http://192.168.0.1.');
+$('ctrl-clear-alarm').addEventListener('click', async () => {
+  try {
+    await plotterCmd('$X');
+    flashBtn('ctrl-clear-alarm', 'Cleared ✓');
+  } catch (e) {
+    flashBtn('ctrl-clear-alarm', 'Failed');
+  }
+  await new Promise(r => setTimeout(r, 400));
+  refreshSettingsPlotter();
 });
 
-$('wifi-auto').addEventListener('click', async () => {
-  if ($('wifi-auto').classList.contains('active') || $('wifi-auto').disabled) return;
-  if (!confirm('Switch the plotter back to Auto (Station → AP)?\n\nIt will restart and rejoin your Wi-Fi.')) return;
-  await switchWifiMode(3, 'auto',
-    'Switching to Auto and restarting…',
-    'Restarting in Auto mode. It will rejoin your Wi-Fi shortly.');
+$('wifi-toggle').addEventListener('click', async () => {
+  const btn = $('wifi-toggle');
+  if (btn.disabled) return;
+  const toAp = !btn.classList.contains('on');
+  const msg = toAp
+    ? 'Switch to hotspot mode? Your phone may need to join the plotter\'s own WiFi network (usually called FluidNC).'
+    : 'Switch to home network mode? The plotter will try your saved WiFi first, and open a hotspot only if that fails.';
+  if (!confirm(msg)) return;
+  btn.disabled = true;
+  try {
+    await fluidncPlain('$WiFi/Mode=' + (toAp ? 'AP' : 'STA>AP'));
+    renderWifiToggle(toAp ? 'ap' : 'sta');
+  } catch (e) {
+    alert('Could not change WiFi mode: ' + (e.message || e));
+    renderWifiToggle(await fetchWifiMode());
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 setInterval(() => {
