@@ -480,7 +480,12 @@ function plParseState(line) {            // "<Hold:0|WPos:...>" -> "Hold"
 }
 
 function plOnMessage(ev) {
-  const data = typeof ev.data === 'string' ? ev.data : '';
+  // FluidNC sends GRBL replies (<...> status, ok/error) as BINARY frames and the
+  // handshake lines (currentID) as text — decode both, or the state stays unknown.
+  let data;
+  if (typeof ev.data === 'string') data = ev.data;
+  else if (ev.data instanceof ArrayBuffer) data = new TextDecoder().decode(ev.data);
+  else return;
   if (!data) return;
   data.split('\n').forEach(raw => {
     const line = raw.trim();
@@ -503,7 +508,7 @@ function plOnMessage(ev) {
 function plConnect(host) {
   return new Promise(resolve => {
     let ws;
-    try { ws = new WebSocket(plotterWsUrl(host)); }
+    try { ws = new WebSocket(plotterWsUrl(host)); ws.binaryType = 'arraybuffer'; }
     catch (e) { resolve(false); return; }
     let settled = false;
     const done = ok => { if (!settled) { settled = true; resolve(ok); } };
