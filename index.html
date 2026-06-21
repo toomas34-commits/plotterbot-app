@@ -763,7 +763,11 @@ const pageHost = pagePlotterHost();
 if (pageHost) applyAutoPlotterAddr(pageHost);
 else {
   try {
-    const pl = localStorage.getItem('plotterbot_plotter'); if (pl) $('plotter-addr').value = pl;
+    let pl = (localStorage.getItem('plotterbot_plotter') || '').trim();
+    // Self-heal: older builds saved the public page host (e.g. *.github.io) here,
+    // which the proxy can't reach. Drop any stored value that isn't a LAN address.
+    if (pl && !studioHostLooksLocal(pl)) { pl = ''; localStorage.removeItem('plotterbot_plotter'); }
+    if (pl) $('plotter-addr').value = pl;
   } catch (e) {}
   if (!$('plotter-addr').value) $('plotter-addr').value = defaultPlotterHost();
 }
