@@ -413,6 +413,10 @@ function pagePlotterHost() {
   if (!/^https?:$/.test(location.protocol)) return '';
   const h = location.hostname;
   if (!h || h === 'localhost' || h === '127.0.0.1') return '';
+  // Only a private LAN host is the plotter (page served from it). A public host
+  // (GitHub Pages / tunnel) is NOT — return '' so relay mode uses the proxy's
+  // PLOTTER_HOST default instead of trying to reach e.g. *.github.io.
+  if (!studioHostLooksLocal(h)) return '';
   return h;
 }
 function applyAutoPlotterAddr(host) {
