@@ -271,6 +271,12 @@
     </div>
 
     <div class="field">
+      <label>Access token</label>
+      <input type="text" id="token-addr" placeholder="from your QR / link (?k=…)" autocomplete="off"/>
+      <div class="note" style="margin-top:6px;">Only needed when you open the app <strong>directly from the plotter</strong> — it can't read the token from your QR then. Paste the same token. Leave blank if your studio has no token.</div>
+    </div>
+
+    <div class="field">
       <label>Plotter address</label>
       <input type="text" id="plotter-addr" placeholder="192.168.0.47" autocomplete="off" inputmode="url"/>
       <div class="status-row"><span class="dot" id="plotter-dot"></span><span id="plotter-msg">Enter plotter IP — relayed via studio.</span></div>
@@ -751,6 +757,7 @@ try {
 } catch (e) {}
 try {
   const sp = localStorage.getItem('plotterbot_proxy'); if (sp) $('proxy-addr').value = sp;
+  const tk = localStorage.getItem('plotterbot_token'); if (tk) $('token-addr').value = tk;
 } catch (e) {}
 const pageHost = pagePlotterHost();
 if (pageHost) applyAutoPlotterAddr(pageHost);
@@ -765,6 +772,10 @@ let proxyTimer = null;
 let plotterTimer = null;
 $('proxy-addr').addEventListener('input', () => {
   try { localStorage.setItem('plotterbot_proxy', $('proxy-addr').value.trim()); } catch (e) {}
+  clearTimeout(proxyTimer); proxyTimer = setTimeout(checkStudio, 400);
+});
+$('token-addr').addEventListener('input', () => {
+  try { localStorage.setItem('plotterbot_token', $('token-addr').value.trim()); } catch (e) {}
   clearTimeout(proxyTimer); proxyTimer = setTimeout(checkStudio, 400);
 });
 $('plotter-addr').addEventListener('input', () => {
@@ -1208,7 +1219,6 @@ function startSdMonitor() {
 }
 function beginProgress() {
   progressStart();
-  const base = studioBase();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(async () => {
     const base = studioBase();   // re-read each tick in case the tunnel fails over
@@ -1256,8 +1266,16 @@ function updatePauseBtn() {
 $('ctrl-stop').addEventListener('click', async () => {
   if (!confirm('Stop the current drawing?')) return;
   if (PL.mode) {
-    plStop();                       // soft reset: cancels the stream, halts, pen up
+    plStop();                       // soft reset: cancels the SD run, halts motion
     if (plottingActive) finishPlotting('Stopped.', true);
+    // A bare reset can drop the BESC PWM and let the servo droop, so force the pen
+    // UP explicitly (clear the post-reset alarm first). plSendLine reconnects the
+    // WebSocket if the reset dropped it. We never send S1000, so Stop only lifts.
+    try {
+      await new Promise(r => setTimeout(r, 600));
+      await plSendLine('$X', 8000);
+      await plSendLine('M3 S0', 8000);
+    } catch (e) {}
     refreshSettingsPlotter();
     return;
   }
@@ -1301,7 +1319,8 @@ $('ctrl-zero').addEventListener('click', async () => {
 
 $('ctrl-restart').addEventListener('click', async () => {
   if (!confirm('Restart the plotter? Any in-progress drawing will be cancelled.')) return;
-  try { await fluidncPlain('$WiFi/Mode=STA>AP'); } catch (e) {}
+  // Soft reset only — do NOT change the WiFi mode here. Forcing STA>AP would drop
+  // the plotter's AP and disconnect you when away from home in hotspot mode.
   try { await plotterRealtime(String.fromCharCode(24)); } catch (e) {}
   await new Promise(r => setTimeout(r, 1200));
   if (plottingActive) finishPlotting('Plotter restarted.', true);
