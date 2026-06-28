@@ -124,18 +124,8 @@
   .btn:disabled { background: var(--ink3); color: var(--paper); cursor: not-allowed; opacity: .7; }
   .btn-ghost:disabled { background: var(--paper); color: var(--ink3); border-color: var(--rule); }
 
-  #process-btn, #send-btn, #gen-wrap { display: none; }
+  #process-btn, #send-btn { display: none; }
   #photo-screen, #desc-screen { display: none; }
-
-  #gen-bar {
-    height: 100%; width: 45%;
-    background: linear-gradient(90deg, var(--brass-d) 0%, var(--brass) 45%, #D49B45 60%, var(--brass-d) 100%);
-    background-size: 300% 100%;
-    border-radius: 999px;
-    animation: indet 1.2s cubic-bezier(.4,0,.6,1) infinite, glide 2s linear infinite;
-  }
-  @keyframes indet { 0% { margin-left: -47%; } 100% { margin-left: 104%; } }
-  @keyframes glide  { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 
   .modal { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(26,25,23,.45); padding: 20px; overflow-y: auto; }
   .modal.on { display: flex; align-items: flex-start; justify-content: center; }
@@ -183,10 +173,32 @@
   .toggle.on::after { transform: translateX(22px); background: var(--paper); }
   .toggle:disabled { opacity: .5; cursor: not-allowed; }
 
-  #progress-wrap { display: none; }
-  .bar { height: 8px; background: var(--panel); border: 1px solid var(--rule); border-radius: 999px; overflow: hidden; }
-  .bar > div { height: 100%; width: 0%; background: var(--brass); transition: width .4s; }
-  #progress-text { font-size: 12px; color: var(--ink2); margin-top: 10px; text-align: center; }
+  /* Circular plot progress (shown on its own over everything while drawing) */
+  #plot-overlay .sheet { align-items: center; text-align: center; gap: 24px; }
+  .ring { position: relative; width: 150px; height: 150px; }
+  .ring svg { width: 150px; height: 150px; transform: rotate(-90deg); }
+  .ring .track { fill: none; stroke: var(--panel); stroke-width: 10; }
+  .ring .fill  { fill: none; stroke: var(--brass); stroke-width: 10; stroke-linecap: round;
+                 stroke-dasharray: 408.4; stroke-dashoffset: 408.4; transition: stroke-dashoffset .4s; }
+  .ring.indet svg { animation: ringspin 1.1s linear infinite; }
+  .ring.indet .fill { transition: none; stroke-dasharray: 95 320; stroke-dashoffset: 0; }
+  @keyframes ringspin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+  .ring-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+              font-size: 30px; font-weight: 600; color: var(--ink); letter-spacing: -0.02em; }
+  #plot-status { font-size: 13px; color: var(--ink2); line-height: 1.6; min-height: 20px; }
+  .spinner { width: 15px; height: 15px; border: 2px solid var(--rule); border-top-color: var(--brass);
+             border-radius: 50%; display: inline-block; vertical-align: -3px; animation: spin360 .8s linear infinite; }
+  @keyframes spin360 { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .ring.indet svg, .spinner { animation: none; } }
+
+  /* Main-screen issue banner */
+  .banner { display: flex; align-items: center; gap: 12px; border-radius: 4px; padding: 12px 14px;
+            font-size: 12px; line-height: 1.5; border: 1px solid var(--rule); }
+  .banner-info { background: var(--panel); color: var(--ink2); }
+  .banner-warn { background: #F5E3E0; border-color: var(--red); color: var(--red); }
+  .banner .b-icon { flex-shrink: 0; }
+  .banner #issue-text { flex: 1; }
+  .banner #issue-unlock { flex-shrink: 0; width: auto; padding: 8px 14px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -207,6 +219,14 @@
 </header>
 
 <div class="col">
+  <div class="banner banner-info" id="issue-banner" style="display:none;">
+    <svg class="b-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>
+    </svg>
+    <span id="issue-text">Checking connection…</span>
+    <button class="btn btn-ghost" id="issue-unlock" style="display:none;">Unlock</button>
+  </div>
+
   <div id="mode-screen">
     <p class="intro">Select a style:</p>
     <div class="mode-card" id="pick-photo">
@@ -248,15 +268,21 @@
 
   <button class="btn btn-primary" id="process-btn">Create drawing</button>
 
-  <div id="gen-wrap">
-    <div class="bar"><div id="gen-bar"></div></div>
-  </div>
-
   <button class="btn btn-go" id="send-btn">Send to plotter</button>
+</div>
 
-  <div id="progress-wrap">
-    <div class="bar"><div id="progress-bar"></div></div>
-    <div id="progress-text">Starting…</div>
+<div class="modal" id="plot-overlay">
+  <div class="sheet">
+    <div class="ring" id="plot-ring">
+      <svg viewBox="0 0 150 150" xmlns="http://www.w3.org/2000/svg">
+        <circle class="track" cx="75" cy="75" r="65"/>
+        <circle class="fill" id="plot-ring-fill" cx="75" cy="75" r="65"/>
+      </svg>
+      <div class="ring-pct" id="ring-pct"></div>
+    </div>
+    <div id="plot-status">Sending to plotter…</div>
+    <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
+    <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
   </div>
 </div>
 
@@ -706,6 +732,7 @@ function renderSettingsPlotter(st) {
   else if (st === 'offline'){ dot.style.background = 'var(--red)';   msg.textContent = 'Not connected (check studio + plotter IP).'; }
   else                      { dot.style.background = 'var(--ink3)';  msg.textContent = 'State: ' + st + '.'; }
   updatePauseBtn();
+  evaluateReadiness();
 }
 
 async function checkPlotter() {
@@ -843,17 +870,18 @@ async function resolveStudio() {
 
 async function checkStudio() {
   const dot = $('proxy-dot'), msg = $('proxy-msg'), base = studioBase();
-  if (!base) { dot.style.background = 'var(--ink3)'; msg.textContent = 'Enter your home address.'; return; }
+  if (!base) { dot.style.background = 'var(--ink3)'; msg.textContent = 'Enter your home address.'; lastStudioOk = false; evaluateReadiness(); return; }
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 4000);
     const r = await fetch(base + '/health', { cache: 'no-store', signal: c.signal });
     clearTimeout(t);
     const j = await r.json();
-    if (j.ok && j.key_set) { dot.style.background = 'var(--green)'; msg.textContent = 'Connected to ' + base; }
-    else if (j.ok)         { dot.style.background = 'var(--brass)'; msg.textContent = 'Reachable at ' + base + ', but no API key set.'; }
-    else                   { dot.style.background = 'var(--red)';   msg.textContent = 'Reachable but not ready.'; }
-  } catch (e) { dot.style.background = 'var(--red)'; msg.textContent = 'Cannot reach ' + base + '. Check the address.'; }
+    if (j.ok && j.key_set) { dot.style.background = 'var(--green)'; msg.textContent = 'Connected to ' + base; lastStudioOk = true; }
+    else if (j.ok)         { dot.style.background = 'var(--brass)'; msg.textContent = 'Reachable at ' + base + ', but no API key set.'; lastStudioOk = false; }
+    else                   { dot.style.background = 'var(--red)';   msg.textContent = 'Reachable but not ready.'; lastStudioOk = false; }
+  } catch (e) { dot.style.background = 'var(--red)'; msg.textContent = 'Cannot reach ' + base + '. Check the address.'; lastStudioOk = false; }
+  evaluateReadiness();
 }
 resolveStudio().then(() => { checkStudio(); checkPlotter(); });
 
@@ -863,11 +891,58 @@ let progressTimer = null;
 let plottingActive = false;
 let gcodeText = null;
 let gcodeStats = null;
+let lastStudioOk = null;     // null = not checked yet; true/false after first /health
+let appBlocked = false;      // a connection/plotter issue is blocking new jobs
+let overlayMode = 'plot';    // what the circular overlay's Cancel button does: 'gen' | 'plot'
+let activeGenCtrl = null;    // AbortController for the in-flight generation request
+let genCancelled = false;    // user pressed Cancel during "Create drawing"
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Circular plot-progress ring (replaces the old linear bar).
+const RING_C = 2 * Math.PI * 65;            // circumference of the r=65 ring
+function ringSet(pct) {
+  $('plot-ring').classList.remove('indet');
+  $('plot-ring-fill').style.strokeDashoffset = RING_C * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  $('ring-pct').textContent = Math.round(pct) + '%';
+}
+function ringIndet() {                        // spinning arc while % is unknown
+  $('plot-ring-fill').style.strokeDashoffset = '';
+  $('plot-ring').classList.add('indet');
+  $('ring-pct').textContent = '';
+}
+
+// "Create drawing" loading screen: the same circular overlay, spinning, while
+// the studio makes the art (no real % to show — generation isn't streamed).
+function genOverlayStart() {
+  overlayMode = 'gen';
+  genCancelled = false;
+  $('plot-status').classList.remove('err-text');
+  $('plot-status').textContent = 'Creating your drawing…';
+  $('plot-cancel').style.display = '';      // Cancel aborts the generation request
+  $('plot-cancel').disabled = false;
+  $('plot-done').style.display = 'none';
+  ringIndet();
+  openModal('plot-overlay');
+}
+function cancelGeneration() {
+  genCancelled = true;
+  try { if (activeGenCtrl) activeGenCtrl.abort(); } catch (e) {}
+  closeModal('plot-overlay');
+  updateProcessBtn();        // restore the Create button so they can try again
+}
+function genOverlayError(msg) {
+  $('plot-ring').classList.remove('indet');
+  $('ring-pct').textContent = '';
+  $('plot-status').textContent = msg;
+  $('plot-status').classList.add('err-text');
+  $('plot-cancel').style.display = 'none';
+  $('plot-done').style.display = '';      // Close -> dismiss + restore the Create button
+}
 
 function resetActionSlot() {
   gcodeText = null; gcodeStats = null;
   $('process-btn').style.display = 'none';
-  $('gen-wrap').style.display = 'none';
   $('send-btn').style.display = 'none';
 }
 
@@ -878,7 +953,6 @@ function showModePicker() {
   $('mode-screen').style.display = 'block';
   $('photo-screen').style.display = 'none';
   $('desc-screen').style.display = 'none';
-  $('progress-wrap').style.display = 'none';
 }
 
 function showPhotoMode() {
@@ -910,8 +984,44 @@ function updateProcessBtn() {
   const ready = currentMode === 'photo' ? !!sourceDataURL
     : currentMode === 'desc' ? ($('desc-input').value.trim().length > 0) : false;
   $('process-btn').style.display = currentMode ? 'block' : 'none';
-  $('process-btn').disabled = !ready;
+  $('process-btn').disabled = !ready || appBlocked;
 }
+
+// One place decides whether the app is usable: studio reachable + plotter idle.
+// Drives the main-screen banner AND disables the Create/Send buttons so a new job
+// can't be started while there's a problem.
+function evaluateReadiness() {
+  const banner = $('issue-banner');
+  if (plottingActive) { banner.style.display = 'none'; appBlocked = false; return; }
+  let issue = null, info = false, unlock = false;
+  if (lastStudioOk === null || plotterState === 'unknown') { issue = 'Checking connection…'; info = true; }
+  else if (lastStudioOk === false) issue = 'Can’t reach the studio (your PC). Check it’s on and connected.';
+  else if (plotterState === 'offline') issue = 'Can’t reach the plotter. Check it’s powered on.';
+  else if (plotterState === 'Alarm') { issue = 'Plotter is locked.'; unlock = true; }
+  else if (plotterState === 'Run' || plotterState === 'Hold' || plotterState === 'Jog')
+    issue = 'Plotter is busy with another job.';
+
+  appBlocked = !!issue;
+  if (issue) {
+    banner.className = 'banner ' + (info ? 'banner-info' : 'banner-warn');
+    $('issue-text').textContent = issue;
+    $('issue-unlock').style.display = unlock ? '' : 'none';
+    banner.style.display = '';
+  } else {
+    banner.style.display = 'none';
+  }
+  $('send-btn').disabled = appBlocked;
+  updateProcessBtn();
+}
+
+$('issue-unlock').addEventListener('click', async () => {
+  $('issue-unlock').disabled = true;
+  $('issue-text').textContent = 'Unlocking…';
+  try { await plotterCmd('$X'); await plotterCmd('M3 S0'); } catch (e) {}
+  await sleep(300);
+  $('issue-unlock').disabled = false;
+  await checkPlotter();
+});
 
 $('pick-photo').addEventListener('click', showPhotoMode);
 $('pick-desc').addEventListener('click', showDescMode);
@@ -939,7 +1049,6 @@ function handleFile(file) {
     $('source-name').textContent = file.name;
     $('source-wrap').style.display = 'block';
     resetActionSlot();
-    $('progress-wrap').style.display = 'none';
     updateProcessBtn();
   };
   reader.onerror = () => alert('Could not read that photo.');
@@ -950,6 +1059,7 @@ async function geminiLineart(dataURL) {
   const base = studioBase();
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
+  activeGenCtrl = ctrl;                 // let Cancel abort this request
   const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
   let r;
   try {
@@ -975,6 +1085,7 @@ async function imageToGcode(lineartUrl) {
   const base = studioBase();
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
+  activeGenCtrl = ctrl;                 // let Cancel abort this request
   const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
   let r;
   try {
@@ -1009,7 +1120,7 @@ $('process-btn').addEventListener('click', async () => {
 
   $('process-btn').style.display = 'none';
   $('send-btn').style.display = 'none';
-  $('gen-wrap').style.display = 'block';
+  genOverlayStart();              // circular loading screen while the art is made
 
   try {
     if (fromPhoto) {
@@ -1021,6 +1132,7 @@ $('process-btn').addEventListener('click', async () => {
       const fd = new FormData();
       fd.append('prompt', prompt);
       const ctrl = new AbortController();
+      activeGenCtrl = ctrl;            // let Cancel abort this request
       const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
       let r;
       try {
@@ -1038,12 +1150,13 @@ $('process-btn').addEventListener('click', async () => {
       gcodeStats = j.stats || {};
     }
   } catch (err) {
-    $('gen-wrap').style.display = 'none';
-    updateProcessBtn();
-    alert(err.message || String(err));
+    activeGenCtrl = null;
+    if (genCancelled) { closeModal('plot-overlay'); updateProcessBtn(); return; }  // user pressed Cancel
+    genOverlayError(err.message || String(err));   // show error + Close in the overlay
     return;
   }
-  $('gen-wrap').style.display = 'none';
+  activeGenCtrl = null;
+  closeModal('plot-overlay');
   $('send-btn').style.display = 'block';
 });
 
@@ -1122,7 +1235,6 @@ $('start-btn').addEventListener('click', async () => {
     }
     closeGate();
     progressStart();
-    $('progress-text').textContent = 'Sending to plotter…';
     try {
       await plSdRun(gcodeText);
     } catch (e) {
@@ -1184,40 +1296,48 @@ function lockControls(locked) {
 function finishPlotting(msg, isError) {
   if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
   plottingActive = false;
+  $('plot-ring').classList.remove('indet');
   if (msg) {
-    $('progress-text').textContent = msg;
-    if (isError) $('progress-text').classList.add('err-text');
+    $('plot-status').textContent = msg;
+    $('plot-status').classList.toggle('err-text', !!isError);
   }
+  $('plot-cancel').style.display = 'none';   // job over: only an acknowledge button remains
+  $('plot-done').style.display = '';
   lockControls(false);
   updateProcessBtn();
   updatePauseBtn();
+  evaluateReadiness();
 }
 
 function progressStart() {
-  $('progress-wrap').style.display = 'block';
-  $('progress-bar').style.width = '0%';
-  $('progress-text').textContent = 'Drawing…';
-  $('progress-text').classList.remove('err-text');
+  overlayMode = 'plot';
+  $('plot-status').classList.remove('err-text');
+  $('plot-status').textContent = 'Sending to plotter…';
+  $('plot-cancel').style.display = '';
+  $('plot-cancel').disabled = false;
+  $('plot-done').style.display = 'none';
+  ringIndet();
+  openModal('plot-overlay');
   lockControls(true);
 }
 function progressSet(pct) {
-  $('progress-bar').style.width = pct + '%';
-  $('progress-text').textContent = 'Drawing… ' + pct + '%';
+  ringSet(pct);
+  $('plot-status').textContent = 'Drawing…';
 }
 function startSdMonitor() {
   // The plotter is now drawing from its SD card on its own. If the phone stays
   // connected we poll status for % + completion; if it disconnects, the draw just
   // continues and the phone simply stops tracking it.
-  $('progress-text').textContent = 'Drawing… (you can put the phone down)';
+  $('plot-status').textContent = 'Drawing… (you can put the phone down)';
   let sawRun = false;
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(async () => {
     const st = await plStatus();                 // sends ? (reconnects if needed)
-    if (st === 'offline') { $('progress-text').textContent = 'Plotter drawing — phone link dropped (reconnecting…)'; return; }
+    if (st === 'offline') { $('plot-status').textContent = 'Plotter drawing — phone link dropped (reconnecting…)'; return; }
     if (st === 'Run' || st === 'Hold' || st === 'Jog' || PL.sdPercent != null) sawRun = true;
     if (PL.sdPercent != null) progressSet(Math.min(100, Math.round(PL.sdPercent)));
     updatePauseBtn();
-    if (sawRun && st === 'Idle') { $('progress-bar').style.width = '100%'; finishPlotting('Done.', false); }
+    if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
     else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
   }, 1500);
 }
@@ -1231,14 +1351,10 @@ function beginProgress() {
     try {
       p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
     } catch (e) { return; }
-    if (p.total) {
-      const pct = Math.min(100, Math.round(100 * p.sent / p.total));
-      $('progress-bar').style.width = pct + '%';
-      $('progress-text').textContent = 'Drawing… ' + pct + '%';
-    }
+    if (p.total) progressSet(Math.min(100, Math.round(100 * p.sent / p.total)));
     if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
     if (p.done) {
-      $('progress-bar').style.width = '100%';
+      ringSet(100);
       finishPlotting('Done.', false);
       return;
     }
@@ -1267,39 +1383,61 @@ function updatePauseBtn() {
   $('ctrl-stop').disabled = !busy;
 }
 
+// Single stop routine used by both the Settings "Stop" button and the plot-screen
+// "Cancel". It HALTS the job, then waits for the plotter to come back and forces
+// the pen UP — retrying, because the soft reset briefly drops the link (the cause
+// of the "had to restart the plotter" disconnect). It never sends S1000, so the
+// pen can only end up lifted. Returns true once the plotter answers again.
+async function safeStop() {
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+  // '!' = immediate feed hold; 0x18 = soft reset (the only way to abort a running
+  // job / SD run, and it breaks the studio's stream loop so it can't resume).
+  try {
+    if (PL.mode) {
+      plStop();                                    // sets PL.cancel + sends 0x18
+    } else {
+      await plotterRealtime('!');
+      await plotterRealtime(String.fromCharCode(24));
+    }
+  } catch (e) {}
+  // Wait for the controller to answer again (link can be down a second or two after
+  // the reset), then clear the post-reset alarm and lift the pen. Retry until it
+  // sticks so a dropped command can't leave the pen down or the machine locked.
+  for (let i = 0; i < 15; i++) {
+    await sleep(900);
+    let st = 'offline';
+    try { st = await fetchPlotterStatus(); } catch (e) {}
+    if (st === 'offline') continue;                // still rebooting / reconnecting
+    try { await plotterCmd('$X'); } catch (e) {}   // clear the post-reset alarm
+    try { await plotterCmd('M3 S0'); } catch (e) {}// hold the pen UP explicitly
+    return true;
+  }
+  return false;
+}
+
 $('ctrl-stop').addEventListener('click', async () => {
   if (!confirm('Stop the current drawing?')) return;
-  if (PL.mode) {
-    plStop();                       // soft reset: cancels the SD run, halts motion
-    if (plottingActive) finishPlotting('Stopped.', true);
-    // A bare reset can drop the BESC PWM and let the servo droop, so force the pen
-    // UP explicitly (clear the post-reset alarm first). plSendLine reconnects the
-    // WebSocket if the reset dropped it. We never send S1000, so Stop only lifts.
-    try {
-      await new Promise(r => setTimeout(r, 600));
-      await plSendLine('$X', 8000);
-      await plSendLine('M3 S0', 8000);
-    } catch (e) {}
-    refreshSettingsPlotter();
-    return;
-  }
-  // Studio-relay path: '!' halts motion immediately; soft reset (0x18) then flushes
-  // FluidNC's planner buffer AND breaks the studio's stream loop (its next line
-  // errors), so the job actually stops instead of resuming on the next '~'.
-  //
-  // The reset alone is not enough to *guarantee* the pen is up: disabling the
-  // spindle can drop the BESC PWM entirely and let the servo droop. So after
-  // the reset settles we clear the post-reset alarm ($X) and actively drive the
-  // pen up (M3 S0) — and we never command S1000, so Stop can only leave it up.
-  try {
-    await plotterRealtime('!');
-    await plotterRealtime(String.fromCharCode(24));
-    await new Promise(r => setTimeout(r, 600));   // let FluidNC reboot after reset
-    await plotterCmd('$X');                        // clear the post-reset alarm
-    await plotterCmd('M3 S0');                     // hold the pen UP explicitly
-  } catch (e) {}
-  if (plottingActive) finishPlotting('Stopped.', true);
+  $('ctrl-stop').disabled = true;
+  $('settings-plotter-msg').innerHTML = '<span class="spinner"></span> Stopping… reconnecting to plotter';
+  await safeStop();
+  if (plottingActive) finishPlotting('Stopped — pen lifted.', false);
   refreshSettingsPlotter();
+});
+
+$('plot-cancel').addEventListener('click', async () => {
+  if (overlayMode === 'gen') { cancelGeneration(); return; }   // abort the art generation
+  if (!confirm('Stop the current drawing?')) return;
+  $('plot-cancel').disabled = true;
+  ringIndet();
+  $('plot-status').innerHTML = '<span class="spinner"></span> Stopping… reconnecting to plotter';
+  await safeStop();
+  finishPlotting('Stopped — pen lifted.', false);
+});
+
+$('plot-done').addEventListener('click', () => {
+  closeModal('plot-overlay');
+  $('plot-status').classList.remove('err-text');
+  evaluateReadiness();
 });
 
 $('ctrl-pause').addEventListener('click', async () => {
@@ -1365,6 +1503,8 @@ $('wifi-toggle').addEventListener('click', async () => {
 setInterval(() => {
   if (!document.hidden && $('settings-modal').classList.contains('on')) checkPlotter();
 }, 1500);
+
+evaluateReadiness();   // show "Checking connection…" + block until the first poll lands
 </script>
 </body>
 </html>
