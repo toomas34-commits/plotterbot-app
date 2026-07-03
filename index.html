@@ -304,8 +304,8 @@
 
     <div class="field">
       <label>Plotter address</label>
-      <input type="text" id="plotter-addr" placeholder="192.168.0.47" autocomplete="off" inputmode="url"/>
-      <div class="status-row"><span class="dot" id="plotter-dot"></span><span id="plotter-msg">Enter plotter IP — relayed via studio.</span></div>
+      <input type="text" id="plotter-addr" placeholder="auto (leave blank)" autocomplete="off" inputmode="url"/>
+      <div class="status-row"><span class="dot" id="plotter-dot"></span><span id="plotter-msg">Leave blank to use the proxy's own plotter address.</span></div>
       <button type="button" class="btn btn-ghost" id="open-fluidnc-btn" style="margin-top:10px;width:100%;">Open FluidNC dashboard</button>
     </div>
 
@@ -433,11 +433,12 @@ function tokUrl(u) {
 function defaultPlotterHost() {
   // Served from the plotter (http://<plotter>/) -> that host IS the plotter.
   // On a public host (GitHub Pages / tunnel) pagePlotterHost() returns '' and we
-  // fall back to the plotter's LAN IP, which the studio proxy can reach (and the
-  // proxy's own PLOTTER_HOST default also covers a blank host).
-  const h = pagePlotterHost();
-  if (h) return h;
-  return '192.168.0.47';
+  // deliberately leave the field blank rather than guessing a hardcoded LAN IP
+  // (stale the moment the plotter moves networks, e.g. onto a phone hotspot) --
+  // plotterHost() then sends that blank straight through, and _clean_host on the
+  // proxy fills in its OWN config.PLOTTER_HOST (kept current via the Bridge app's
+  // Settings/scan), which every device relaying through that proxy shares automatically.
+  return pagePlotterHost();
 }
 // When the app is opened from the plotter itself (http://<plotter>/), that host
 // is the plotter address — AP (192.168.0.1) or home WiFi (192.168.0.47).
