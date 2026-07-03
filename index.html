@@ -829,14 +829,18 @@ $('open-fluidnc-btn').addEventListener('click', async () => {
   // happen inside the click handler, before any await) and navigate it once known.
   const base = studioBase();
   if (!base) { alert('Enter the plotter IP address first.'); return; }
-  const win = window.open('', '_blank', 'noopener');
+  // Open WITHOUT 'noopener': window.open() returns null when noopener is set, so we'd
+  // lose the handle and the later win.location would throw — leaving a blank tab open
+  // forever (the bug). Keep the handle, then sever opener manually for the same safety.
+  const win = window.open('about:blank', '_blank');
+  if (win) win.opener = null;
   try {
     const r = await fetch(tokUrl(base + '/plotter_default_host'), { cache: 'no-store' });
     const j = await r.json();
     host = (j.host || '').trim();
   } catch (e) {}
   if (!host) { if (win) win.close(); alert('Could not determine the plotter address from the proxy.'); return; }
-  win.location = 'http://' + host + '/fluidnc.html';
+  if (win) win.location = 'http://' + host + '/fluidnc.html';
 });
 // Direct mode = this page is served FROM the plotter (same-origin WS speaks
 // FluidNC). Loaded from anywhere else (studio/gist/file), the WS won't open and
@@ -930,6 +934,67 @@ function ringIndet() {                        // spinning arc while % is unknown
   $('ring-pct').textContent = '';
 }
 
+// ── Estimated progress for "Create drawing" ─────────────────────────────────
+// Generation isn't streamed, so there's no real %. We ease the ring toward a
+// per-stage cap on a timer (asymptotic — approaches but never reaches the cap
+// until the stage actually finishes), so the user always sees movement. The
+// pacing self-calibrates from the last few real stage durations (localStorage).
+const GEN_TIME_KEY = 'plotterbot_gen_times';
+function genTimes() { try { return JSON.parse(localStorage.getItem(GEN_TIME_KEY)) || {}; } catch (e) { return {}; } }
+function genTimePush(kind, secs) {
+  if (!(secs > 0) || !isFinite(secs)) return;
+  const t = genTimes(); t[kind] = (t[kind] || []).concat(secs).slice(-5);
+  try { localStorage.setItem(GEN_TIME_KEY, JSON.stringify(t)); } catch (e) {}
+}
+function genTimeMedian(kind, fallbackSec) {
+  const arr = (genTimes()[kind] || []).slice().sort((a, b) => a - b);
+  if (!arr.length) return fallbackSec;
+  const m = arr[Math.floor(arr.length / 2)];
+  return (m > 0 && isFinite(m)) ? m : fallbackSec;
+}
+const estProg = {
+  timer: null, from: 0, cap: 0, expMs: 1000, start: 0, kind: null,
+  begin(fromPct, capPct, expectedSec, kind) {
+    this.from = fromPct; this.cap = capPct;
+    this.expMs = Math.max(1000, expectedSec * 1000);
+    this.start = Date.now(); this.kind = kind;
+    ringSet(fromPct);
+    if (this.timer) clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      const el = Date.now() - this.start;
+      ringSet(this.from + (this.cap - this.from) * (1 - Math.exp(-2 * el / this.expMs)));
+    }, 200);
+  },
+  checkpoint() {                              // stage finished: record its real time, snap to cap
+    if (this.kind) genTimePush(this.kind, (Date.now() - this.start) / 1000);
+    ringSet(this.cap);
+  },
+  stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } this.kind = null; },
+};
+
+// Shrink a photo to <= maxDim px (canvas → JPEG) before uploading, so a full-res
+// phone photo isn't sent verbatim over mobile data. If the browser can't decode it
+// (e.g. HEIC on Chrome/Android), return the original — the proxy downsizes as a backstop.
+function downscaleDataURL(dataURL, maxDim, quality) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) { resolve(dataURL); return; }
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      if (scale >= 1) { resolve(dataURL); return; }        // already small enough
+      const cw = Math.round(w * scale), ch = Math.round(h * scale);
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      try {
+        c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+        resolve(c.toDataURL('image/jpeg', quality));
+      } catch (e) { resolve(dataURL); }
+    };
+    img.onerror = () => resolve(dataURL);
+    img.src = dataURL;
+  });
+}
+
 // "Create drawing" loading screen: the same circular overlay, spinning, while
 // the studio makes the art (no real % to show — generation isn't streamed).
 function genOverlayStart() {
@@ -940,16 +1005,18 @@ function genOverlayStart() {
   $('plot-cancel').style.display = '';      // Cancel aborts the generation request
   $('plot-cancel').disabled = false;
   $('plot-done').style.display = 'none';
-  ringIndet();
+  ringSet(0);                // determinate ring; the estimator (estProg) drives it
   openModal('plot-overlay');
 }
 function cancelGeneration() {
   genCancelled = true;
+  estProg.stop();
   try { if (activeGenCtrl) activeGenCtrl.abort(); } catch (e) {}
   closeModal('plot-overlay');
   updateProcessBtn();        // restore the Create button so they can try again
 }
 function genOverlayError(msg) {
+  estProg.stop();
   $('plot-ring').classList.remove('indet');
   $('ring-pct').textContent = '';
   $('plot-status').textContent = msg;
@@ -1063,7 +1130,13 @@ function handleFile(file) {
   const reader = new FileReader();
   reader.onload = ev => {
     sourceDataURL = ev.target.result;
-    $('source-img').src = sourceDataURL;
+    const img = $('source-img');
+    // HEIC (iPhone) photos don't render in Chrome/Android <img>; show a placeholder
+    // instead of a broken image. Upload still works — the server converts/downsizes.
+    img.style.display = '';
+    img.onload = () => { img.style.display = ''; $('source-name').textContent = file.name; };
+    img.onerror = () => { img.style.display = 'none'; $('source-name').textContent = '✓ Photo selected — ' + file.name; };
+    img.src = sourceDataURL;
     $('source-name').textContent = file.name;
     $('source-wrap').style.display = 'block';
     resetActionSlot();
@@ -1142,11 +1215,19 @@ $('process-btn').addEventListener('click', async () => {
 
   try {
     if (fromPhoto) {
-      const lineartUrl = await geminiLineart(sourceDataURL);
+      // Two real stages: Gemini line art (→ 65%) then G-code (→ 95%). The ring eases
+      // within each stage and snaps at each checkpoint; 100% on completion.
+      estProg.begin(0, 65, genTimeMedian('lineart', 30), 'lineart');
+      const toSend = await downscaleDataURL(sourceDataURL, 1024, 0.9);
+      const lineartUrl = await geminiLineart(toSend);
+      estProg.checkpoint();
+      estProg.begin(65, 95, genTimeMedian('gcode', 20), 'gcode');
       const j = await imageToGcode(lineartUrl);
+      estProg.checkpoint();
       gcodeText = j.gcode;
       gcodeStats = j.stats || {};
     } else {
+      estProg.begin(0, 95, genTimeMedian('generate', 40), 'generate');
       const fd = new FormData();
       fd.append('prompt', prompt);
       const ctrl = new AbortController();
@@ -1164,16 +1245,20 @@ $('process-btn').addEventListener('click', async () => {
       }
       const j = await r.json();
       if (!j.gcode) throw new Error('No drawing came back. Try again.');
+      estProg.checkpoint();
       gcodeText = j.gcode;
       gcodeStats = j.stats || {};
     }
   } catch (err) {
     activeGenCtrl = null;
+    estProg.stop();
     if (genCancelled) { closeModal('plot-overlay'); updateProcessBtn(); return; }  // user pressed Cancel
     genOverlayError(err.message || String(err));   // show error + Close in the overlay
     return;
   }
   activeGenCtrl = null;
+  estProg.stop();
+  ringSet(100);
   closeModal('plot-overlay');
   $('send-btn').style.display = 'block';
 });
@@ -1362,6 +1447,7 @@ function startSdMonitor() {
 function beginProgress() {
   progressStart();
   if (progressTimer) clearInterval(progressTimer);
+  let sawRun = false, blanks = 0;
   progressTimer = setInterval(async () => {
     const base = studioBase();   // re-read each tick in case the tunnel fails over
     if (!base) return;
@@ -1369,6 +1455,21 @@ function beginProgress() {
     try {
       p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
     } catch (e) { return; }
+    // Proxy has no active job record (e.g. it restarted mid-plot). The SD draw keeps
+    // going on the plotter, so after a few blank replies stop trusting /plot_progress
+    // and drive completion from the plotter's own status instead of spinning forever.
+    if (p && !p.running && !p.done && !p.error) {
+      if (++blanks >= 4) {
+        const st = await fetchPlotterStatus();
+        updatePauseBtn();
+        if (st === 'Run' || st === 'Hold' || st === 'Jog') sawRun = true;
+        if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
+        else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+      }
+      return;
+    }
+    blanks = 0;
+    if (p.running || p.sent) sawRun = true;
     if (p.total) progressSet(Math.min(100, Math.round(100 * p.sent / p.total)));
     if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
     if (p.done) {
@@ -1414,6 +1515,11 @@ async function safeStop() {
     if (PL.mode) {
       plStop();                                    // sets PL.cancel + sends 0x18
     } else {
+      // Tell the proxy to abort its SD-plot job BEFORE the realtime reset. Without this,
+      // a stop pressed while the proxy is still uploading to the SD card is ignored by the
+      // job thread, which then sends $SD/Run and starts the draw seconds after "stop".
+      const base = studioBase();
+      if (base) { try { fetch(tokUrl(base + '/plot_cancel'), { method: 'POST' }); } catch (e) {} }
       await plotterRealtime('!');
       await plotterRealtime(String.fromCharCode(24));
     }
