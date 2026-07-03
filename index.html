@@ -815,11 +815,28 @@ $('plotter-addr').addEventListener('input', () => {
   clearTimeout(plotterTimer);
   plotterTimer = setTimeout(checkPlotter, 400);
 });
-$('open-fluidnc-btn').addEventListener('click', () => {
-  const host = plotterHost();
-  if (!host) { alert('Enter the plotter IP address first.'); return; }
-  // Stock FluidNC/ESP3D dashboard is served at /fluidnc.html (root is the phone app).
-  window.open(plotterHttp() + '/fluidnc.html', '_blank', 'noopener');
+$('open-fluidnc-btn').addEventListener('click', async () => {
+  let host = plotterHost();
+  if (host) {
+    // Stock FluidNC/ESP3D dashboard is served at /fluidnc.html (root is the phone app).
+    window.open(plotterHttp() + '/fluidnc.html', '_blank', 'noopener');
+    return;
+  }
+  // Field intentionally blank in relay mode (see plotterHost()) -- relayed calls let
+  // the proxy substitute its own PLOTTER_HOST server-side, but this opens a NEW TAB
+  // straight at the plotter, bypassing the proxy, so the browser itself needs the
+  // real address. Open the tab synchronously first (popup blockers require that to
+  // happen inside the click handler, before any await) and navigate it once known.
+  const base = studioBase();
+  if (!base) { alert('Enter the plotter IP address first.'); return; }
+  const win = window.open('', '_blank', 'noopener');
+  try {
+    const r = await fetch(tokUrl(base + '/plotter_default_host'), { cache: 'no-store' });
+    const j = await r.json();
+    host = (j.host || '').trim();
+  } catch (e) {}
+  if (!host) { if (win) win.close(); alert('Could not determine the plotter address from the proxy.'); return; }
+  win.location = 'http://' + host + '/fluidnc.html';
 });
 // Direct mode = this page is served FROM the plotter (same-origin WS speaks
 // FluidNC). Loaded from anywhere else (studio/gist/file), the WS won't open and
