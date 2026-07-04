@@ -125,7 +125,11 @@
   .btn-ghost:disabled { background: var(--paper); color: var(--ink3); border-color: var(--rule); }
 
   #process-btn, #send-btn { display: none; }
-  #photo-screen, #desc-screen { display: none; }
+  #photo-screen, #desc-screen, #poem-screen { display: none; }
+  .qrow { display: flex; gap: 10px; align-items: stretch; }
+  .qrow input[type="text"] { flex: 1; }
+  .qrow .btn-skip { width: auto; flex: 0 0 auto; padding: 11px 16px; font-size: 11px; }
+  .poem-q { margin-bottom: 4px; }
 
   .modal { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(26,25,23,.45); padding: 20px; overflow-y: auto; }
   .modal.on { display: flex; align-items: flex-start; justify-content: center; }
@@ -199,6 +203,17 @@
   .banner .b-icon { flex-shrink: 0; }
   .banner #issue-text { flex: 1; }
   .banner #issue-unlock { flex-shrink: 0; width: auto; padding: 8px 14px; font-size: 11px; }
+
+  /* Prominent "don't close" warning shown only while the browser is building the
+     poem's handwriting G-code (that work happens on-device and pauses if the tab
+     is backgrounded/locked) -- must be impossible to miss. */
+  #gen-warn {
+    font-size: 12px; font-weight: 600; color: var(--red); letter-spacing: .02em;
+    background: #F5E3E0; border: 1px solid var(--red); border-radius: 4px; padding: 10px 14px;
+    animation: warnpulse 1.6s ease-in-out infinite;
+  }
+  @keyframes warnpulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { #gen-warn { animation: none; } }
 </style>
 </head>
 <body>
@@ -239,6 +254,11 @@
       <div class="mode-title">Imagine something new</div>
       <div class="mode-desc">Turn a written description into a physical drawing.</div>
     </div>
+    <div class="mode-card" id="pick-poem">
+      <div class="mode-icon">✒</div>
+      <div class="mode-title">Poem about you</div>
+      <div class="mode-desc">Answer a few questions — get a funny poem, hand-written on paper.</div>
+    </div>
     <p class="surprise-note">Real-world preview only.<br/>The final drawing reveals itself on the paper.</p>
   </div>
 
@@ -266,6 +286,17 @@
     <p class="surprise-note">You won't see the result here — watch it appear on paper.</p>
   </div>
 
+  <div id="poem-screen">
+    <div class="back-link" id="back-from-poem">← Change mode</div>
+    <div class="field">
+      <label>Your name</label>
+      <input type="text" id="poem-name" maxlength="40" placeholder="e.g. Alex" autocomplete="off"/>
+    </div>
+    <div id="poem-questions"></div>
+    <p class="note" id="poem-answered-hint">Answer at least 4 questions.</p>
+    <p class="surprise-note">You won't see the poem here — watch it appear on paper.</p>
+  </div>
+
   <button class="btn btn-primary" id="process-btn">Create drawing</button>
 
   <button class="btn btn-go" id="send-btn">Send to plotter</button>
@@ -281,6 +312,7 @@
       <div class="ring-pct" id="ring-pct"></div>
     </div>
     <div id="plot-status">Sending to plotter…</div>
+    <div id="gen-warn" style="display:none;">⚠ Keep this page open — preparing your poem. Don't close the phone or browser.</div>
     <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
     <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
   </div>
@@ -399,9 +431,58 @@
 
 <script>
 const $ = id => document.getElementById(id);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
 const GEN_TIMEOUT_MS = 180000;
 const STUDIO_GIST = 'https://api.github.com/gists/8e3cd56b15f7e75d7e2782d554486453';
 const BED_MM = 150;
+
+// ── Poem mode ────────────────────────────────────────────────────────────────
+// Handwriting engine is reused, unchanged, from handwriting-demo/ (browser-only RNN,
+// ~2.65 MB of weights — cannot run in proxy.py). Loaded lazily (only when Poem mode
+// is opened) from the GitHub-Pages app repo so the 192 KB plotter flash never needs it.
+const HW_ENGINE_BASE = 'https://toomas34-commits.github.io/plotterbot-app/';
+const POEM_MARGIN_MM = 8;
+const POEM_SLOTS = 5;        // question slots shown at once
+const POEM_MIN_ANSWERED = 4; // must answer at least this many before Create is enabled
+// Curated cursive styles (copied from handwriting-demo/index.html CURSIVE) — picked at
+// random per poem for the playful/surprise feel.
+const POEM_CURSIVE = [1,5,6,8,13,15,16,18,22,29,31,37,39,43,49,53,55,56,59,71,75,76,77,78];
+const POEM_QUESTIONS = [
+  "What's your favourite food?",
+  "What's a hobby you love?",
+  "What's your biggest fear?",
+  "What do you do too much of?",
+  "What's your dream holiday?",
+  "What's a nickname people call you?",
+  "What's your favourite animal?",
+  "What's something you're proud of?",
+  "What's your go-to karaoke song?",
+  "What's your worst habit?",
+  "What superpower would you want?",
+  "What's your favourite season?",
+  "What's a food you hate?",
+  "What's your favourite drink?",
+  "What job did you want as a kid?",
+  "What's your favourite movie?",
+  "What annoys you the most?",
+  "What's your idea of a perfect day?",
+  "What's a talent you have?",
+  "What's your favourite colour?",
+  "What sport do you like (or hate)?",
+  "What's a place you'd love to visit?",
+  "What's your comfort food?",
+  "What music do you listen to?",
+  "What's your biggest achievement?",
+  "What do your friends tease you about?",
+  "What's your favourite way to relax?",
+  "What's your dream job?",
+  "What's a weird fact about you?",
+  "What pet do you have (or want)?",
+  "What's your favourite holiday tradition?",
+  "What's your go-to comfort show?",
+  "What's the last thing you laughed hard at?",
+  "What's your favourite way to spend a weekend?",
+];
 
 const openModal  = id => $(id).classList.add('on');
 const closeModal = id => $(id).classList.remove('on');
@@ -1011,6 +1092,7 @@ function genOverlayStart() {
 function cancelGeneration() {
   genCancelled = true;
   estProg.stop();
+  $('gen-warn').style.display = 'none';   // poem mode's build loop releases the wake lock itself
   try { if (activeGenCtrl) activeGenCtrl.abort(); } catch (e) {}
   closeModal('plot-overlay');
   updateProcessBtn();        // restore the Create button so they can try again
@@ -1038,6 +1120,7 @@ function showModePicker() {
   $('mode-screen').style.display = 'block';
   $('photo-screen').style.display = 'none';
   $('desc-screen').style.display = 'none';
+  $('poem-screen').style.display = 'none';
 }
 
 function showPhotoMode() {
@@ -1049,6 +1132,7 @@ function showPhotoMode() {
   $('photo-screen').style.flexDirection = 'column';
   $('photo-screen').style.gap = '24px';
   $('desc-screen').style.display = 'none';
+  $('poem-screen').style.display = 'none';
   updateProcessBtn();
 }
 
@@ -1061,13 +1145,30 @@ function showDescMode() {
   $('desc-screen').style.display = 'flex';
   $('desc-screen').style.flexDirection = 'column';
   $('desc-screen').style.gap = '24px';
+  $('poem-screen').style.display = 'none';
+  updateProcessBtn();
+}
+
+function showPoemMode() {
+  if (plottingActive) return;
+  currentMode = 'poem';
+  resetActionSlot();
+  $('mode-screen').style.display = 'none';
+  $('photo-screen').style.display = 'none';
+  $('desc-screen').style.display = 'none';
+  $('poem-screen').style.display = 'flex';
+  $('poem-screen').style.flexDirection = 'column';
+  $('poem-screen').style.gap = '24px';
+  if (!poemSlots.length) initPoemQuestions();
   updateProcessBtn();
 }
 
 function updateProcessBtn() {
   if (plottingActive || gcodeText) return;
   const ready = currentMode === 'photo' ? !!sourceDataURL
-    : currentMode === 'desc' ? ($('desc-input').value.trim().length > 0) : false;
+    : currentMode === 'desc' ? ($('desc-input').value.trim().length > 0)
+    : currentMode === 'poem' ? ($('poem-name').value.trim().length > 0 && poemAnsweredCount() >= POEM_MIN_ANSWERED)
+    : false;
   $('process-btn').style.display = currentMode ? 'block' : 'none';
   $('process-btn').disabled = !ready || appBlocked;
 }
@@ -1110,13 +1211,16 @@ $('issue-unlock').addEventListener('click', async () => {
 
 $('pick-photo').addEventListener('click', showPhotoMode);
 $('pick-desc').addEventListener('click', showDescMode);
+$('pick-poem').addEventListener('click', showPoemMode);
 $('back-from-photo').addEventListener('click', showModePicker);
 $('back-from-desc').addEventListener('click', showModePicker);
+$('back-from-poem').addEventListener('click', showModePicker);
 
 $('desc-input').addEventListener('input', () => {
   $('desc-len').textContent = $('desc-input').value.length;
   if (!gcodeText) updateProcessBtn();
 });
+$('poem-name').addEventListener('input', () => { if (!gcodeText) updateProcessBtn(); });
 
 $('dropzone').addEventListener('dragover', e => { e.preventDefault(); $('dropzone').classList.add('drag'); });
 $('dropzone').addEventListener('dragleave', () => $('dropzone').classList.remove('drag'));
@@ -1146,7 +1250,248 @@ function handleFile(file) {
   reader.readAsDataURL(file);
 }
 
-async function geminiLineart(dataURL) {
+// ── Poem mode: question picker (shuffle from the library, skip → swap in a fresh
+// unused one, minimum answered count before Create unlocks) ────────────────────
+let poemPool = [];    // shuffled library entries not currently shown
+let poemSlots = [];   // the POEM_SLOTS questions currently on screen
+
+function shuffleArr(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function initPoemQuestions() {
+  poemPool = shuffleArr(POEM_QUESTIONS);
+  poemSlots = poemPool.splice(0, POEM_SLOTS);
+  renderPoemQuestions();
+}
+function renderPoemQuestions() {
+  const wrap = $('poem-questions');
+  wrap.innerHTML = '';
+  poemSlots.forEach((q, i) => {
+    const div = document.createElement('div');
+    div.className = 'field poem-q';
+    div.innerHTML = '<label>' + escapeHtml(q) + '</label>'
+      + '<div class="qrow">'
+      + '<input type="text" class="poem-answer" maxlength="120" placeholder="Type your answer…" data-idx="' + i + '"/>'
+      + '<button type="button" class="btn btn-ghost btn-skip" data-idx="' + i + '">Skip</button>'
+      + '</div>';
+    wrap.appendChild(div);
+  });
+  wrap.querySelectorAll('.poem-answer').forEach(inp => inp.addEventListener('input', updatePoemHint));
+  wrap.querySelectorAll('.btn-skip').forEach(btn => btn.addEventListener('click', () => skipPoemQuestion(+btn.dataset.idx)));
+  updatePoemHint();
+}
+function skipPoemQuestion(idx) {
+  if (!poemPool.length) {
+    // Ran out of fresh questions (only happens after ~29 skips with the current
+    // library) — reshuffle the rest of the library minus what's on screen so Skip
+    // still does something instead of silently failing.
+    poemPool = shuffleArr(POEM_QUESTIONS.filter(q => !poemSlots.includes(q)));
+  }
+  if (poemPool.length) poemSlots[idx] = poemPool.shift();
+  renderPoemQuestions();
+}
+function poemAnsweredCount() {
+  return $$('.poem-answer').filter(inp => inp.value.trim().length > 0).length;
+}
+function updatePoemHint() {
+  const n = poemAnsweredCount();
+  const hint = $('poem-answered-hint');
+  if (hint) {
+    hint.textContent = n >= POEM_MIN_ANSWERED
+      ? 'Ready — ' + n + ' question' + (n === 1 ? '' : 's') + ' answered.'
+      : 'Answer at least ' + POEM_MIN_ANSWERED + ' questions (' + n + '/' + POEM_MIN_ANSWERED + ').';
+  }
+  if (currentMode === 'poem' && !gcodeText) updateProcessBtn();
+}
+
+// ── Poem mode: sanitize text to the handwriting model's alphabet ───────────────
+// model.js only knows A-Z a-z 0-9 space and basic punctuation (see the character
+// map in handwriting-demo/model.js) — anything else (smart quotes, em dashes,
+// ellipsis, emoji, accented letters) draws as a garbled scribble. Normalize the
+// common offenders, then strip whatever's left outside the supported set.
+const HW_UNSUPPORTED = /[^A-Za-z0-9 "&()*,.:!#'+\-/;?[\]]/g;
+function sanitizeForHandwriting(text) {
+  return String(text)
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/…/g, '...')
+    .replace(HW_UNSUPPORTED, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ── Poem mode: lazy-load the handwriting engine (only when Poem mode is first
+// opened — photo/text users never download the 2.65 MB weights) ───────────────
+let hwEngineLoaded = null;
+let hwModelLoaded = null;
+function loadScriptTag(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load the handwriting engine.'));
+    document.head.appendChild(s);
+  });
+}
+async function ensureHandwritingReady() {
+  if (!hwEngineLoaded) {
+    hwEngineLoaded = (async () => {
+      await loadScriptTag(HW_ENGINE_BASE + 'weights.js');
+      await loadScriptTag(HW_ENGINE_BASE + 'model.js');
+      await loadScriptTag(HW_ENGINE_BASE + 'gcode.js');
+    })().catch(e => { hwEngineLoaded = null; throw e; });
+  }
+  await hwEngineLoaded;
+  if (!hwModelLoaded) {
+    hwModelLoaded = HW.loadModel().catch(e => { hwModelLoaded = null; throw e; });
+  }
+  await hwModelLoaded;
+}
+
+// ── Poem mode: screen wake lock (the handwriting is built ON the phone — if the
+// screen locks mid-build the browser pauses the work) ──────────────────────────
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return null;
+  try { return await navigator.wakeLock.request('screen'); } catch (e) { return null; }
+}
+function releaseWakeLock(lock) {
+  if (lock) { try { lock.release(); } catch (e) {} }
+}
+
+// ── Poem mode: browser-side G-code stats (mirrors proxy.py _gcode_stats, since
+// the poem's G-code is built here, not returned by /image2gcode) ───────────────
+function computeGcodeStats(gtext) {
+  let cx = 0, cy = 0, pen = false, draw = 0, trav = 0, lifts = 0;
+  gtext.split('\n').forEach(raw => {
+    const line = raw.split(';')[0].trim();
+    if (!line) return;
+    const norm = line.split(/\s+/).join(' ');
+    if (norm === 'M3 S1000') { if (!pen) lifts++; pen = true; return; }
+    if (norm === 'M3 S0') { pen = false; return; }
+    const m = line.match(/^G([01])\s+X(-?[\d.]+)\s+Y(-?[\d.]+)/i);
+    if (!m) return;
+    const x = parseFloat(m[2]), y = parseFloat(m[3]);
+    const d = Math.hypot(x - cx, y - cy);
+    if (m[1] === '0') trav += d; else draw += d;
+    cx = x; cy = y;
+  });
+  const est = draw / 3000 + trav / 5000 + lifts * 2 * 0.30 / 60;
+  return {
+    draw_m: Math.round(draw / 1000 * 100) / 100,
+    travel_m: Math.round(trav / 1000 * 100) / 100,
+    pen_lifts: lifts,
+    est_minutes: Math.round(est * 10) / 10,
+  };
+}
+
+function bboxOfPts(points) {
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (const p of points) {
+    if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+async function requestPoem(name, answers) {
+  const base = studioBase();
+  if (!base) throw new Error('Set the studio address in Settings first.');
+  const ctrl = new AbortController();
+  activeGenCtrl = ctrl;
+  const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(tokUrl(base + '/poem'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, answers }),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    throw new Error(ctrl.signal.aborted ? 'It took too long. Please try again.' : 'Could not reach the studio. Check the address and that you have internet.');
+  } finally { clearTimeout(t); }
+  if (!r.ok) {
+    let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
+    throw new Error(msg || ('error ' + r.status));
+  }
+  const j = await r.json();
+  if (!j.title || !j.lines || !j.lines.length) throw new Error('No poem came back. Try again.');
+  return j;
+}
+
+// Row-preserving, title-aware, auto-fit handwriting layout: one RNN row per
+// Gemini line (NO re-wrapping — row count on paper must match exactly), title
+// row bigger + gapped like a heading, whole block uniformly scaled to fill the
+// bed and each row centered horizontally. Reports real per-row progress via onProgress.
+async function buildPoemGcode(title, lines, onProgress) {
+  await ensureHandwritingReady();
+
+  const rows = [{ text: sanitizeForHandwriting(title), isTitle: true }]
+    .concat(lines.map(l => ({ text: sanitizeForHandwriting(l), isTitle: false })))
+    .filter(r => r.text.length > 0);
+  if (!rows.length) throw new Error('The poem came back empty. Try again.');
+  rows.forEach(r => { if (r.text.length > 40) r.text = r.text.slice(0, 40); }); // last-resort trim
+
+  const total = rows.length;
+  const style = POEM_CURSIVE[Math.floor(Math.random() * POEM_CURSIVE.length)];
+  const bias = 0.8;
+
+  const rowData = [];
+  for (let i = 0; i < total; i++) {
+    if (genCancelled) throw new Error('cancelled');
+    const res = HW.generateLine(rows[i].text, { style, bias });
+    const strokes = HW.splitStrokes(res.points).filter(s => s.length >= 1);
+    const pts = strokes.length ? strokes.flat() : [[0, 0, 1]];
+    rowData.push({ strokes, bb: bboxOfPts(pts), isTitle: rows[i].isTitle });
+    if (onProgress) onProgress(Math.round(100 * (i + 1) / total), i + 1, total);
+    await sleep(0);   // yield so Cancel stays responsive
+  }
+
+  const TITLE_SCALE = 1.4, TITLE_GAP_FRAC = 0.6;
+  const rowLineH = rowData.map(r => Math.max(r.bb.maxY - r.bb.minY, 1) * 1.4);
+  const rowUnits = rowData.map((r, i) => r.isTitle ? rowLineH[i] * TITLE_SCALE : rowLineH[i]);
+  const extraGap = total > 1 ? rowLineH[0] * TITLE_GAP_FRAC : 0;
+  const blockH = rowUnits.reduce((a, b) => a + b, 0) + extraGap;
+  const blockW = Math.max(...rowData.map(r => Math.max(r.bb.maxX - r.bb.minX, 1)));
+
+  const avail = BED_MM - 2 * POEM_MARGIN_MM;
+  const scale = Math.min(avail / blockW, avail / blockH);
+  const topY = Math.max(POEM_MARGIN_MM, (BED_MM - blockH * scale) / 2);
+
+  const allStrokes = [];
+  let cursorY = topY;
+  rowData.forEach((r, i) => {
+    const rowH_mm = rowUnits[i] * scale;
+    const rowCenterY = cursorY + rowH_mm / 2;
+    const w = Math.max(r.bb.maxX - r.bb.minX, 0);
+    const leftX = Math.max(POEM_MARGIN_MM, (BED_MM - w * scale) / 2);
+    const midY = (r.bb.minY + r.bb.maxY) / 2;
+    r.strokes.forEach(s => {
+      const out = [];
+      for (let k = 0; k < s.length; k++) {
+        out.push([leftX + (s[k][0] - r.bb.minX) * scale, rowCenterY - (s[k][1] - midY) * scale]);
+      }
+      allStrokes.push(out);
+    });
+    cursorY += rowH_mm;
+    if (i === 0 && total > 1) cursorY += extraGap * scale;
+  });
+
+  const joined = GCODE.joinStrokes(allStrokes, 2.5);
+  const built = GCODE.buildGcode(joined, { bed: BED_MM, feed: 3000 });
+  return { gcode: built.gcode, stats: computeGcodeStats(built.gcode) };
+}
+
+async function geminiLineart(dataURL, prompt) {
   const base = studioBase();
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
@@ -1157,7 +1502,7 @@ async function geminiLineart(dataURL) {
     r = await fetch(tokUrl(base + '/lineart'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataURL }),
+      body: JSON.stringify(prompt ? { prompt } : { image: dataURL }),
       signal: ctrl.signal,
     });
   } catch (e) {
@@ -1201,9 +1546,20 @@ async function imageToGcode(lineartUrl) {
 $('process-btn').addEventListener('click', async () => {
   const fromPhoto = currentMode === 'photo';
   const fromDesc = currentMode === 'desc';
+  const fromPoem = currentMode === 'poem';
   if (fromPhoto && !sourceDataURL) { alert('Choose a photo first.'); return; }
   const prompt = fromDesc ? $('desc-input').value.trim() : '';
   if (fromDesc && !prompt) { alert('Write a description first.'); return; }
+  let poemName = '', poemAnswers = [];
+  if (fromPoem) {
+    poemName = $('poem-name').value.trim();
+    const answerInputs = $$('.poem-answer');
+    poemAnswers = poemSlots
+      .map((q, i) => ({ q, a: answerInputs[i] ? answerInputs[i].value.trim() : '' }))
+      .filter(qa => qa.a);
+    if (!poemName) { alert('Enter your name first.'); return; }
+    if (poemAnswers.length < POEM_MIN_ANSWERED) { alert('Answer at least ' + POEM_MIN_ANSWERED + ' questions.'); return; }
+  }
 
   await resolveStudio();
   const base = studioBase();
@@ -1213,6 +1569,7 @@ $('process-btn').addEventListener('click', async () => {
   $('send-btn').style.display = 'none';
   genOverlayStart();              // circular loading screen while the art is made
 
+  let poemWakeLock = null;
   try {
     if (fromPhoto) {
       // Two real stages: Gemini line art (→ 65%) then G-code (→ 95%). The ring eases
@@ -1226,38 +1583,49 @@ $('process-btn').addEventListener('click', async () => {
       estProg.checkpoint();
       gcodeText = j.gcode;
       gcodeStats = j.stats || {};
-    } else {
-      estProg.begin(0, 95, genTimeMedian('generate', 40), 'generate');
-      const fd = new FormData();
-      fd.append('prompt', prompt);
-      const ctrl = new AbortController();
-      activeGenCtrl = ctrl;            // let Cancel abort this request
-      const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
-      let r;
-      try {
-        r = await fetch(tokUrl(base + '/generate'), { method: 'POST', body: fd, signal: ctrl.signal });
-      } catch (e) {
-        throw new Error(ctrl.signal.aborted ? 'It took too long. Please try again.' : 'Could not reach the studio. Check the address and that you have internet.');
-      } finally { clearTimeout(t); }
-      if (!r.ok) {
-        let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
-        throw new Error(msg || ('error ' + r.status));
-      }
-      const j = await r.json();
-      if (!j.gcode) throw new Error('No drawing came back. Try again.');
+    } else if (fromDesc) {
+      // Same two-stage split as photo mode (Gemini line art, then G-code) so no single
+      // request runs long enough to risk the remote studio's tunnel dropping mid-flight.
+      estProg.begin(0, 65, genTimeMedian('lineart', 30), 'lineart');
+      const lineartUrl = await geminiLineart(null, prompt);
+      estProg.checkpoint();
+      estProg.begin(65, 95, genTimeMedian('gcode', 20), 'gcode');
+      const j = await imageToGcode(lineartUrl);
       estProg.checkpoint();
       gcodeText = j.gcode;
       gcodeStats = j.stats || {};
+    } else {
+      // Poem mode: the proxy only writes the poem TEXT (Gemini); the handwriting
+      // G-code is built HERE, on this device, reusing the handwriting-demo engine —
+      // real work happens on the phone, so keep the screen awake and warn against
+      // closing the page (unlike photo/desc, where the studio does all the work).
+      $('gen-warn').style.display = '';
+      poemWakeLock = await requestWakeLock();
+      ringIndet();
+      $('plot-status').textContent = 'Writing your poem…';
+      const poemResult = await requestPoem(poemName, poemAnswers);
+      if (genCancelled) throw new Error('cancelled');
+      $('plot-status').textContent = 'Handwriting your poem…';
+      const built = await buildPoemGcode(poemResult.title, poemResult.lines, (pct, done, total) => {
+        ringSet(pct);   // real per-row progress, not the eased estimate above
+        $('plot-status').textContent = 'Handwriting your poem… ' + done + '/' + total;
+      });
+      gcodeText = built.gcode;
+      gcodeStats = built.stats;
     }
   } catch (err) {
     activeGenCtrl = null;
     estProg.stop();
+    releaseWakeLock(poemWakeLock);
+    $('gen-warn').style.display = 'none';
     if (genCancelled) { closeModal('plot-overlay'); updateProcessBtn(); return; }  // user pressed Cancel
     genOverlayError(err.message || String(err));   // show error + Close in the overlay
     return;
   }
   activeGenCtrl = null;
   estProg.stop();
+  releaseWakeLock(poemWakeLock);
+  $('gen-warn').style.display = 'none';
   ringSet(100);
   closeModal('plot-overlay');
   $('send-btn').style.display = 'block';
@@ -1383,17 +1751,25 @@ $('start-btn').addEventListener('click', async () => {
 
 function lockControls(locked) {
   plottingActive = locked;
-  $('process-btn').disabled = locked || (currentMode === 'photo' ? !sourceDataURL : !$('desc-input').value.trim());
+  $('process-btn').disabled = locked || (
+    currentMode === 'photo' ? !sourceDataURL
+    : currentMode === 'desc' ? !$('desc-input').value.trim()
+    : currentMode === 'poem' ? (!$('poem-name').value.trim() || poemAnsweredCount() < POEM_MIN_ANSWERED)
+    : true
+  );
   $('send-btn').disabled = locked;
   $('pick-photo').style.pointerEvents = locked ? 'none' : '';
   $('pick-desc').style.pointerEvents = locked ? 'none' : '';
+  $('pick-poem').style.pointerEvents = locked ? 'none' : '';
   $('pick-photo').style.opacity = locked ? '.5' : '';
   $('pick-desc').style.opacity = locked ? '.5' : '';
+  $('pick-poem').style.opacity = locked ? '.5' : '';
   $('dropzone').style.pointerEvents = locked ? 'none' : '';
   $('dropzone').style.opacity = locked ? '.5' : '';
   $('desc-input').disabled = locked;
   $('back-from-photo').style.pointerEvents = locked ? 'none' : '';
   $('back-from-desc').style.pointerEvents = locked ? 'none' : '';
+  $('back-from-poem').style.pointerEvents = locked ? 'none' : '';
 }
 
 function finishPlotting(msg, isError) {
@@ -1416,6 +1792,7 @@ function progressStart() {
   overlayMode = 'plot';
   $('plot-status').classList.remove('err-text');
   $('plot-status').textContent = 'Sending to plotter…';
+  $('gen-warn').style.display = 'none';   // generation is over by the time we plot
   $('plot-cancel').style.display = '';
   $('plot-cancel').disabled = false;
   $('plot-done').style.display = 'none';
