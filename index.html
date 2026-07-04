@@ -1169,6 +1169,7 @@ function updateProcessBtn() {
     : currentMode === 'desc' ? ($('desc-input').value.trim().length > 0)
     : currentMode === 'poem' ? ($('poem-name').value.trim().length > 0 && poemAnsweredCount() >= POEM_MIN_ANSWERED)
     : false;
+  $('process-btn').textContent = currentMode === 'poem' ? 'Create poem' : 'Create drawing';
   $('process-btn').style.display = currentMode ? 'block' : 'none';
   $('process-btn').disabled = !ready || appBlocked;
 }
@@ -1449,7 +1450,18 @@ async function buildPoemGcode(title, lines, onProgress) {
   for (let i = 0; i < total; i++) {
     if (genCancelled) throw new Error('cancelled');
     const res = HW.generateLine(rows[i].text, { style, bias });
-    const strokes = HW.splitStrokes(res.points).filter(s => s.length >= 1);
+    let strokes = HW.splitStrokes(res.points).filter(s => s.length >= 1);
+    // The RNN sometimes puts the pen down with a tiny "flick" before the real
+    // first letter begins, leaving a stray dot at the start of the line. Detect
+    // it by SIZE (much smaller than the rest of the row), not position, so a
+    // genuinely small first letter (e.g. "i") never gets dropped by mistake.
+    if (strokes.length > 1) {
+      const restBB = bboxOfPts(strokes.slice(1).flat());
+      const refH = Math.max(restBB.maxY - restBB.minY, 1);
+      const firstBB = bboxOfPts(strokes[0]);
+      const firstDiag = Math.hypot(firstBB.maxX - firstBB.minX, firstBB.maxY - firstBB.minY);
+      if (firstDiag < 0.15 * refH) strokes = strokes.slice(1);
+    }
     const pts = strokes.length ? strokes.flat() : [[0, 0, 1]];
     rowData.push({ strokes, bb: bboxOfPts(pts), isTitle: rows[i].isTitle });
     if (onProgress) onProgress(Math.round(100 * (i + 1) / total), i + 1, total);
