@@ -1523,30 +1523,58 @@ async function buildPoemGcode(title, lines, onProgress) {
   return { gcode: built.gcode, stats: computeGcodeStats(built.gcode) };
 }
 
+// Shared network-error message for both the initial POST and every progress poll —
+// keeps "aborted by our own GEN_TIMEOUT_MS" vs "connection actually dropped" distinct.
+function fetchFailMsg(ctrl) {
+  return ctrl.signal.aborted ? 'It took too long. Please try again.' : 'Could not reach the studio. Check the address and that you have internet.';
+}
+
+// Poll a /*_progress endpoint until it reports done or error. The generation itself
+// runs as a background job on the studio (mirrors the plotting-phase /plot +
+// /plot_progress pattern) instead of one request held open for the whole duration —
+// a slow Gemini call or a busy image's trace can otherwise run long enough that the
+// phone-bridge's free Cloudflare tunnel drops an idle connection mid-request.
+async function pollJob(url, ctrl) {
+  while (true) {
+    if (genCancelled) throw new Error('cancelled');
+    await sleep(1200);
+    let p;
+    try {
+      p = await (await fetch(url, { cache: 'no-store', signal: ctrl.signal })).json();
+    } catch (e) {
+      throw new Error(fetchFailMsg(ctrl));
+    }
+    if (p.error) throw new Error(p.error);
+    if (p.done) return p;
+  }
+}
+
 async function geminiLineart(dataURL, prompt) {
   const base = studioBase();
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
   activeGenCtrl = ctrl;                 // let Cancel abort this request
   const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
-  let r;
   try {
-    r = await fetch(tokUrl(base + '/lineart'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(prompt ? { prompt } : { image: dataURL }),
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    throw new Error(ctrl.signal.aborted ? 'It took too long. Please try again.' : 'Could not reach the studio. Check the address and that you have internet.');
+    let r;
+    try {
+      r = await fetch(tokUrl(base + '/lineart_start'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prompt ? { prompt } : { image: dataURL }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      throw new Error(fetchFailMsg(ctrl));
+    }
+    if (!r.ok) {
+      let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
+      throw new Error(msg || ('error ' + r.status));
+    }
+    const p = await pollJob(tokUrl(base + '/lineart_progress'), ctrl);
+    if (!p.image) throw new Error('No line art came back from Gemini.');
+    return p.image;
   } finally { clearTimeout(t); }
-  if (!r.ok) {
-    let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
-    throw new Error(msg || ('error ' + r.status));
-  }
-  const j = await r.json();
-  if (!j.image) throw new Error('No line art came back from Gemini.');
-  return j.image;
 }
 
 async function imageToGcode(lineartUrl) {
@@ -1555,24 +1583,26 @@ async function imageToGcode(lineartUrl) {
   const ctrl = new AbortController();
   activeGenCtrl = ctrl;                 // let Cancel abort this request
   const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
-  let r;
   try {
-    r = await fetch(tokUrl(base + '/image2gcode'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: lineartUrl, bed_mm: BED_MM }),
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    throw new Error(ctrl.signal.aborted ? 'It took too long. Please try again.' : 'Could not reach the studio. Check the address and that you have internet.');
+    let r;
+    try {
+      r = await fetch(tokUrl(base + '/image2gcode_start'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: lineartUrl, bed_mm: BED_MM }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      throw new Error(fetchFailMsg(ctrl));
+    }
+    if (!r.ok) {
+      let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
+      throw new Error(msg || ('error ' + r.status));
+    }
+    const p = await pollJob(tokUrl(base + '/image2gcode_progress'), ctrl);
+    if (!p.gcode) throw new Error('No drawing came back. Try again.');
+    return { gcode: p.gcode, stats: p.stats || {} };
   } finally { clearTimeout(t); }
-  if (!r.ok) {
-    let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
-    throw new Error(msg || ('error ' + r.status));
-  }
-  const j = await r.json();
-  if (!j.gcode) throw new Error('No drawing came back. Try again.');
-  return j;
 }
 
 $('process-btn').addEventListener('click', async () => {
