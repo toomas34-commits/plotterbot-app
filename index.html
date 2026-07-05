@@ -445,8 +445,13 @@ const POEM_MARGIN_MM = 8;
 const POEM_SLOTS = 5;        // question slots shown at once
 const POEM_MIN_ANSWERED = 4; // must answer at least this many before Create is enabled
 // Curated cursive styles (copied from handwriting-demo/index.html CURSIVE) — picked at
-// random per poem for the playful/surprise feel.
-const POEM_CURSIVE = [1,5,6,8,13,15,16,18,22,29,31,37,39,43,49,53,55,56,59,71,75,76,77,78];
+// random per poem for the playful/surprise feel. Styles 6, 13, 18, 29, 75 were dropped
+// (July 2026): those are the most heavily-joined cursive styles, which measurably
+// almost never lift the pen to dot an i/j at all (tested by generating several
+// i/j-containing phrases per style and counting how often a distinct dot stroke showed
+// up: 29 -> 0/5, 18 -> 1/5, 75 -> 1/5, 6 -> 2/5, 13 -> 2/5, vs 3-5/5 for the rest) — a
+// property of that style's own handwriting, not something buildPoemGcode can add back in.
+const POEM_CURSIVE = [1,5,8,15,16,22,31,37,39,43,49,53,55,56,59,71,76,77,78];
 const POEM_QUESTIONS = [
   "What's your favourite food?",
   "What's a hobby you love?",
@@ -482,6 +487,72 @@ const POEM_QUESTIONS = [
   "What's your go-to comfort show?",
   "What's the last thing you laughed hard at?",
   "What's your favourite way to spend a weekend?",
+  "What's your favourite snack?",
+  "What's a song that's been stuck in your head lately?",
+  "What's your favourite time of day?",
+  "What's something you collect?",
+  "What's a chore you hate doing?",
+  "What's your favourite book?",
+  "What's a skill you wish you had?",
+  "What's your go-to excuse for being late?",
+  "What's the last thing you bought yourself?",
+  "What's your favourite type of weather?",
+  "What's a food you could eat every single day?",
+  "What's a rule you think is silly?",
+  "What's a game you love playing?",
+  "What's your favourite childhood memory?",
+  "What's something that always makes you laugh?",
+  "What's your favourite thing about your job?",
+  "What's a place that feels like home to you?",
+  "What's your go-to coffee or tea order?",
+  "What's a habit you're trying to break?",
+  "What's your favourite way to travel?",
+  "What's the best gift you've ever gotten?",
+  "What's something you're terrible at?",
+  "What's your dream car?",
+  "What's a smell you love?",
+  "What's your favourite app on your phone?",
+  "What's something you always forget?",
+  "What's your go-to dance move?",
+  "What's a movie that always makes you cry?",
+  "What's your favourite thing to cook?",
+  "What's a fear you've overcome?",
+  "What's your favourite word to say?",
+  "What's something you're secretly good at?",
+  "What's your idea of the perfect Friday night?",
+  "What's a sound you can't stand?",
+  "What's your favourite way to celebrate?",
+  "What's the weirdest food combo you actually like?",
+  "What's something you always carry in your bag?",
+  "What's your favourite piece of clothing?",
+  "What's a subject you loved in school?",
+  "What's a subject you hated in school?",
+  "What's your spirit animal?",
+  "What's your favourite holiday of the year?",
+  "What's a chore you secretly enjoy?",
+  "What's the last show you binge-watched?",
+  "What's your go-to comfort drink?",
+  "What's your favourite thing to do alone?",
+  "What's your favourite outdoor activity?",
+  "What's a nickname you gave someone else?",
+  "What's your biggest guilty pleasure?",
+  "What's a food trend you don't understand?",
+  "What's a sport you'd love to try?",
+  "What's your go-to karaoke duet partner?",
+  "What's the last thing you Googled?",
+  "What's your favourite ice cream flavour?",
+  "What's your favourite thing about your best friend?",
+  "What's your favourite thing to do with friends?",
+  "What's a trend you refuse to follow?",
+  "What's a food you loved as a kid?",
+  "What's your favourite thing about mornings?",
+  "What's the most useless thing you're good at?",
+  "What's your favourite thing to complain about?",
+  "What's your go-to party trick?",
+  "What's your favourite piece of advice you've received?",
+  "What's your favourite thing about your hometown?",
+  "What's a habit you picked up from a friend?",
+  "What's something you'd never admit out loud?",
 ];
 
 const openModal  = id => $(id).classList.add('on');
@@ -1300,6 +1371,10 @@ function renderPoemQuestions() {
   updatePoemHint();
 }
 function skipPoemQuestion(idx) {
+  // renderPoemQuestions() rebuilds every input from scratch (wrap.innerHTML = ''),
+  // which would silently wipe out answers already typed into the OTHER questions —
+  // save them first and restore everything except the slot actually being skipped.
+  const priorAnswers = $$('.poem-answer').map(inp => inp.value);
   if (!poemPool.length) {
     // Ran out of fresh questions (only happens after ~29 skips with the current
     // library) — reshuffle the rest of the library minus what's on screen so Skip
@@ -1308,6 +1383,8 @@ function skipPoemQuestion(idx) {
   }
   if (poemPool.length) poemSlots[idx] = poemPool.shift();
   renderPoemQuestions();
+  $$('.poem-answer').forEach((inp, i) => { if (i !== idx) inp.value = priorAnswers[i] || ''; });
+  updatePoemHint();
 }
 function poemAnsweredCount() {
   return $$('.poem-answer').filter(inp => inp.value.trim().length > 0).length;

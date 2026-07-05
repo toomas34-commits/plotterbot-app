@@ -46,9 +46,25 @@
     return n;
   }
 
+  // Any stroke whose whole bounding box is smaller than this counts as a "dot"
+  // (i-dot, j-dot, tiny punctuation tick) rather than a traced micro-path — see
+  // the DOT_MM comment in buildGcode for why.
+  var DEFAULT_DOT_MM = 0.5;
+
+  function bboxDiag(s) {
+    var minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (var i = 0; i < s.length; i++) {
+      var x = s[i][0], y = s[i][1];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    return Math.hypot(maxX - minX, maxY - minY);
+  }
+
   function buildGcode(strokes, opts) {
     opts = opts || {};
     var BED = opts.bed || 150, F = opts.feed || 3000;
+    var DOT_MM = opts.dotMm != null ? opts.dotMm : DEFAULT_DOT_MM;
     function clamp(v) { return v < 0 ? 0 : v > BED ? BED : v; }
     function fx(v) { return clamp(v).toFixed(3); }
     function fy(v) { return clamp(BED - v).toFixed(3); }   // Y-flip to plotter space
@@ -58,11 +74,27 @@
     for (var k = 0; k < strokes.length; k++) {
       var s = strokes[k];
       if (!s || !s.length) continue;
-      L.push('G0 X' + fx(s[0][0]) + ' Y' + fy(s[0][1]));   // rapid to start (pen up)
+      // A "dot" (i-dot, j-dot, tiny punctuation tick) is often just a couple of
+      // points a fraction of a millimetre apart — the RNN's own sampling jitter
+      // for a dot can be far smaller than a pen tip can reliably register as a
+      // deliberate press. Tracing that literal sub-millimetre wiggle risks the
+      // pen barely grazing the paper; collapse it to one guaranteed dwell at its
+      // centroid instead, same as the always-was single-point case below.
+      var isDot = s.length === 1 || bboxDiag(s) < DOT_MM;
+      var cx = s[0][0], cy = s[0][1];
+      if (isDot && s.length > 1) {
+        var sx = 0, sy = 0;
+        for (var i = 0; i < s.length; i++) { sx += s[i][0]; sy += s[i][1]; }
+        cx = sx / s.length; cy = sy / s.length;
+      }
+      L.push('G0 X' + fx(cx) + ' Y' + fy(cy));              // rapid to start (pen up)
       L.push('M3 S1000');                                   // pen down
       lifts++;
-      for (var i = 1; i < s.length; i++) L.push('G1 X' + fx(s[i][0]) + ' Y' + fy(s[i][1]));
-      if (s.length === 1) L.push('G1 X' + fx(s[0][0]) + ' Y' + fy(s[0][1])); // lone dot
+      if (isDot) {
+        L.push('G1 X' + fx(cx) + ' Y' + fy(cy));            // guaranteed dwell -- see DOT_MM above
+      } else {
+        for (var i = 1; i < s.length; i++) L.push('G1 X' + fx(s[i][0]) + ' Y' + fy(s[i][1]));
+      }
       L.push('M3 S0');                                      // pen up
     }
     L.push('M3 S0', 'G0 X0.000 Y0.000');
