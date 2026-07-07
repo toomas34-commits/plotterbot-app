@@ -612,6 +612,21 @@ function applyAutoPlotterAddr(host) {
   $('plotter-addr').value = host;
   try { localStorage.setItem('plotterbot_plotter', host); } catch (e) {}
 }
+// The Settings "Plotter address" field is meant to be an auto-filled display of
+// wherever the proxy currently reaches the plotter (config.PLOTTER_HOST, kept
+// current via the Bridge app's Settings/scan) -- NOT a sticky manual override.
+// Without this, a value cached here from a past network (e.g. the home IP) looks
+// like a valid LAN address forever and keeps silently overriding the proxy's own
+// current default (the self-heal below only clears values that DON'T look like a
+// LAN host, e.g. a stray *.github.io). Called every checkPlotter() poll so the
+// field self-corrects within one 8s tick instead of requiring the user to clear it.
+async function syncPlotterHostFromProxy(base) {
+  try {
+    const r = await fetch(tokUrl(base + '/plotter_default_host'), { cache: 'no-store' });
+    const j = await r.json();
+    if (j && j.host) applyAutoPlotterAddr(j.host.trim());
+  } catch (e) {}
+}
 function plotterHost() {
   const v = ($('plotter-addr').value || '').trim()
     .replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:.*$/, '');
@@ -911,13 +926,15 @@ async function checkPlotter() {
     renderSettingsPlotter(st);
     return;
   }
-  const host = plotterHost(), base = studioBase();
+  const base = studioBase();
   if (!base) {
     dot.style.background = 'var(--brass)';
     msg.textContent = 'Set the studio address first — it relays to the plotter.';
     renderSettingsPlotter('offline');
     return;
   }
+  await syncPlotterHostFromProxy(base);
+  const host = plotterHost();
   // host may be blank for a remote guest — the proxy reaches the plotter via its
   // own PLOTTER_HOST default, so show a neutral label instead of demanding an IP.
   const where = host || 'the plotter';
