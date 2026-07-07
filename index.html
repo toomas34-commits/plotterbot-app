@@ -433,6 +433,13 @@
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 const GEN_TIMEOUT_MS = 180000;
+// The /*_start handshake should return almost instantly (it just starts a
+// background job), so GEN_TIMEOUT_MS is plenty. The job it starts has no fixed
+// duration -- a busier photo makes Gemini's redraw and the Potrace/vpype trace
+// step slower, especially on the phone-bridge's Termux CPU, and can legitimately
+// run well past 3 minutes. The poll loop that follows needs a much longer leash
+// so it can't time out a job that's still genuinely running.
+const GEN_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const STUDIO_GIST = 'https://api.github.com/gists/8e3cd56b15f7e75d7e2782d554486453';
 const BED_MM = 150;
 
@@ -1648,7 +1655,7 @@ async function geminiLineart(dataURL, prompt) {
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
   activeGenCtrl = ctrl;                 // let Cancel abort this request
-  const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
+  let t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
   try {
     let r;
     try {
@@ -1665,6 +1672,8 @@ async function geminiLineart(dataURL, prompt) {
       let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
       throw new Error(msg || ('error ' + r.status));
     }
+    clearTimeout(t);
+    t = setTimeout(() => ctrl.abort(), GEN_POLL_TIMEOUT_MS);   // job is now running -- see GEN_POLL_TIMEOUT_MS
     const p = await pollJob(tokUrl(base + '/lineart_progress'), ctrl);
     if (!p.image) throw new Error('No line art came back from Gemini.');
     return p.image;
@@ -1676,7 +1685,7 @@ async function imageToGcode(lineartUrl) {
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
   activeGenCtrl = ctrl;                 // let Cancel abort this request
-  const t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
+  let t = setTimeout(() => ctrl.abort(), GEN_TIMEOUT_MS);
   try {
     let r;
     try {
@@ -1693,6 +1702,8 @@ async function imageToGcode(lineartUrl) {
       let msg; try { msg = (await r.json()).error; } catch { msg = 'something went wrong'; }
       throw new Error(msg || ('error ' + r.status));
     }
+    clearTimeout(t);
+    t = setTimeout(() => ctrl.abort(), GEN_POLL_TIMEOUT_MS);   // job is now running -- see GEN_POLL_TIMEOUT_MS
     const p = await pollJob(tokUrl(base + '/image2gcode_progress'), ctrl);
     if (!p.gcode) throw new Error('No drawing came back. Try again.');
     return { gcode: p.gcode, stats: p.stats || {} };
