@@ -125,7 +125,7 @@
   .btn-ghost:disabled { background: var(--paper); color: var(--ink3); border-color: var(--rule); }
 
   #process-btn, #send-btn { display: none; }
-  #photo-screen, #desc-screen, #poem-screen { display: none; }
+  #quality-screen, #photo-screen, #desc-screen, #poem-screen { display: none; }
   .qrow { display: flex; gap: 10px; align-items: stretch; }
   .qrow input[type="text"] { flex: 1; }
   .qrow .btn-skip { width: auto; flex: 0 0 auto; padding: 11px 16px; font-size: 11px; }
@@ -260,6 +260,21 @@
       <div class="mode-desc">Answer a few questions — get a funny poem, hand-written on paper.</div>
     </div>
     <p class="surprise-note">Real-world preview only.<br/>The final drawing reveals itself on the paper.</p>
+  </div>
+
+  <div id="quality-screen">
+    <div class="back-link" id="back-from-quality">← Change mode</div>
+    <p class="intro">Select a quality:</p>
+    <div class="mode-card" id="pick-quality-normal">
+      <div class="mode-icon">⬡</div>
+      <div class="mode-title">Normal</div>
+      <div class="mode-desc">Simpler outlines, tuned for what a 0.3&nbsp;mm pen can actually trace at 15×15&nbsp;cm.</div>
+    </div>
+    <div class="mode-card" id="pick-quality-high">
+      <div class="mode-icon">✦</div>
+      <div class="mode-title">High</div>
+      <div class="mode-desc">Richer detail and shading — may include finer lines than the pen can cleanly reproduce.</div>
+    </div>
   </div>
 
   <div id="photo-screen">
@@ -1094,6 +1109,7 @@ async function checkStudio() {
 resolveStudio().then(() => { checkStudio(); checkPlotter(); });
 
 let currentMode = null;
+let currentQuality = null;   // 'normal' | 'high' -- chosen on quality-screen, photo/desc modes only
 let sourceDataURL = null;
 let progressTimer = null;
 let plottingActive = false;
@@ -1221,11 +1237,36 @@ function resetActionSlot() {
 function showModePicker() {
   if (plottingActive) return;
   currentMode = null;
+  currentQuality = null;
   resetActionSlot();
   $('mode-screen').style.display = 'block';
+  $('quality-screen').style.display = 'none';
   $('photo-screen').style.display = 'none';
   $('desc-screen').style.display = 'none';
   $('poem-screen').style.display = 'none';
+}
+
+// Photo/desc modes ask for a quality choice first (see chooseQuality) -- poem mode
+// has no Gemini image call, so pick-poem still goes straight to showPoemMode().
+function showQualityPicker(mode) {
+  if (plottingActive) return;
+  currentMode = mode;
+  currentQuality = null;
+  resetActionSlot();
+  $('mode-screen').style.display = 'none';
+  $('quality-screen').style.display = 'flex';
+  $('quality-screen').style.flexDirection = 'column';
+  $('quality-screen').style.gap = '24px';
+  $('photo-screen').style.display = 'none';
+  $('desc-screen').style.display = 'none';
+  $('poem-screen').style.display = 'none';
+}
+
+function chooseQuality(quality) {
+  if (plottingActive) return;
+  currentQuality = quality;
+  if (currentMode === 'photo') showPhotoMode();
+  else if (currentMode === 'desc') showDescMode();
 }
 
 function showPhotoMode() {
@@ -1233,6 +1274,7 @@ function showPhotoMode() {
   currentMode = 'photo';
   resetActionSlot();
   $('mode-screen').style.display = 'none';
+  $('quality-screen').style.display = 'none';
   $('photo-screen').style.display = 'flex';
   $('photo-screen').style.flexDirection = 'column';
   $('photo-screen').style.gap = '24px';
@@ -1246,6 +1288,7 @@ function showDescMode() {
   currentMode = 'desc';
   resetActionSlot();
   $('mode-screen').style.display = 'none';
+  $('quality-screen').style.display = 'none';
   $('photo-screen').style.display = 'none';
   $('desc-screen').style.display = 'flex';
   $('desc-screen').style.flexDirection = 'column';
@@ -1259,6 +1302,7 @@ function showPoemMode() {
   currentMode = 'poem';
   resetActionSlot();
   $('mode-screen').style.display = 'none';
+  $('quality-screen').style.display = 'none';
   $('photo-screen').style.display = 'none';
   $('desc-screen').style.display = 'none';
   $('poem-screen').style.display = 'flex';
@@ -1315,9 +1359,12 @@ $('issue-unlock').addEventListener('click', async () => {
   await checkPlotter();
 });
 
-$('pick-photo').addEventListener('click', showPhotoMode);
-$('pick-desc').addEventListener('click', showDescMode);
+$('pick-photo').addEventListener('click', () => showQualityPicker('photo'));
+$('pick-desc').addEventListener('click', () => showQualityPicker('desc'));
 $('pick-poem').addEventListener('click', showPoemMode);
+$('pick-quality-normal').addEventListener('click', () => chooseQuality('normal'));
+$('pick-quality-high').addEventListener('click', () => chooseQuality('high'));
+$('back-from-quality').addEventListener('click', showModePicker);
 $('back-from-photo').addEventListener('click', showModePicker);
 $('back-from-desc').addEventListener('click', showModePicker);
 $('back-from-poem').addEventListener('click', showModePicker);
@@ -1650,7 +1697,7 @@ async function pollJob(url, ctrl) {
   }
 }
 
-async function geminiLineart(dataURL, prompt) {
+async function geminiLineart(dataURL, prompt, quality) {
   const base = studioBase();
   if (!base) throw new Error('Set the studio address in Settings first.');
   const ctrl = new AbortController();
@@ -1662,7 +1709,7 @@ async function geminiLineart(dataURL, prompt) {
       r = await fetch(tokUrl(base + '/lineart_start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prompt ? { prompt } : { image: dataURL }),
+        body: JSON.stringify({ ...(prompt ? { prompt } : { image: dataURL }), quality: quality || 'high' }),
         signal: ctrl.signal,
       });
     } catch (e) {
@@ -1743,7 +1790,7 @@ $('process-btn').addEventListener('click', async () => {
       // within each stage and snaps at each checkpoint; 100% on completion.
       estProg.begin(0, 65, genTimeMedian('lineart', 30), 'lineart');
       const toSend = await downscaleDataURL(sourceDataURL, 1024, 0.9);
-      const lineartUrl = await geminiLineart(toSend);
+      const lineartUrl = await geminiLineart(toSend, undefined, currentQuality);
       estProg.checkpoint();
       estProg.begin(65, 95, genTimeMedian('gcode', 20), 'gcode');
       const j = await imageToGcode(lineartUrl);
@@ -1754,7 +1801,7 @@ $('process-btn').addEventListener('click', async () => {
       // Same two-stage split as photo mode (Gemini line art, then G-code) so no single
       // request runs long enough to risk the remote studio's tunnel dropping mid-flight.
       estProg.begin(0, 65, genTimeMedian('lineart', 30), 'lineart');
-      const lineartUrl = await geminiLineart(null, prompt);
+      const lineartUrl = await geminiLineart(null, prompt, currentQuality);
       estProg.checkpoint();
       estProg.begin(65, 95, genTimeMedian('gcode', 20), 'gcode');
       const j = await imageToGcode(lineartUrl);
@@ -1931,12 +1978,17 @@ function lockControls(locked) {
   $('pick-photo').style.opacity = locked ? '.5' : '';
   $('pick-desc').style.opacity = locked ? '.5' : '';
   $('pick-poem').style.opacity = locked ? '.5' : '';
+  $('pick-quality-normal').style.pointerEvents = locked ? 'none' : '';
+  $('pick-quality-high').style.pointerEvents = locked ? 'none' : '';
+  $('pick-quality-normal').style.opacity = locked ? '.5' : '';
+  $('pick-quality-high').style.opacity = locked ? '.5' : '';
   $('dropzone').style.pointerEvents = locked ? 'none' : '';
   $('dropzone').style.opacity = locked ? '.5' : '';
   $('desc-input').disabled = locked;
   $('back-from-photo').style.pointerEvents = locked ? 'none' : '';
   $('back-from-desc').style.pointerEvents = locked ? 'none' : '';
   $('back-from-poem').style.pointerEvents = locked ? 'none' : '';
+  $('back-from-quality').style.pointerEvents = locked ? 'none' : '';
 }
 
 function finishPlotting(msg, isError) {
