@@ -2048,44 +2048,50 @@ function startSdMonitor() {
 function beginProgress() {
   progressStart();
   if (progressTimer) clearInterval(progressTimer);
-  let sawRun = false, blanks = 0;
+  // jobStarted: the proxy has told the plotter to $SD/Run (its own "drawing"
+  // status) — until then we still trust the proxy's upload/kickoff tracking.
+  // everRun: the plotter's OWN live status has actually shown Run/Hold/Jog at
+  // least once — an Idle reading before that just means it hasn't physically
+  // started moving yet (normal for a few seconds after $SD/Run), not that
+  // it's done. idleTicks mirrors the proxy's own ~30s "SD run did not start"
+  // grace window so this can't hang forever if it genuinely never starts.
+  let jobStarted = false, everRun = false, idleTicks = 0;
+  const MAX_IDLE_TICKS = 20; // ~30s at 1.5s/tick
   progressTimer = setInterval(async () => {
-    const base = studioBase();   // re-read each tick in case the tunnel fails over
-    if (!base) return;
-    let p;
-    try {
-      p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
-    } catch (e) { return; }
-    // Proxy has no active job record (e.g. it restarted mid-plot). The SD draw keeps
-    // going on the plotter, so after a few blank replies stop trusting /plot_progress
-    // and drive completion from the plotter's own status instead of spinning forever.
-    if (p && !p.running && !p.done && !p.error) {
-      if (++blanks >= 4) {
-        const st = await fetchPlotterStatus();
-        updatePauseBtn();
-        if (st === 'Run' || st === 'Hold' || st === 'Jog') sawRun = true;
-        if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
-        else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
-        else if (st === 'offline') $('plot-status').textContent = 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)';
-      }
-      return;
+    // Before the draw is confirmed running, still trust the proxy's own
+    // upload/kickoff tracking (SD upload failed, SD run rejected, etc.) — those
+    // happen fast, well before any lost-contact scenario is plausible.
+    if (!jobStarted) {
+      const base = studioBase();   // re-read each tick in case the tunnel fails over
+      if (!base) return;
+      let p;
+      try {
+        p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
+      } catch (e) { return; }
+      if (p && p.error) { finishPlotting('Failed: ' + p.error, true); return; }
+      if (p && p.done) { ringSet(100); finishPlotting('Done.', false); return; }
+      if (p && (p.status === 'drawing' || p.sent)) jobStarted = true;
+      if (p) $('plot-status').textContent = (p.status === 'uploading') ? 'Sending to plotter…' : 'Starting…';
+      if (!jobStarted) return;
     }
-    blanks = 0;
-    if (p.running || p.sent) sawRun = true;
-    // Same FluidNC SD:% caveat as startSdMonitor() above: it's file-read
-    // progress, not draw completion, and races to 100 well before the pen is
-    // actually done. Cap below 100 so only the real Idle-transition below can
-    // ever show 100%.
-    if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
-    if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
-    if (p.done) {
-      ringSet(100);
-      finishPlotting('Done.', false);
-      return;
-    }
+    // Once the proxy has told the plotter to run, stop trusting the proxy's
+    // own SD-run job-tracking for pass/fail — $SD/Run executes locally on the
+    // controller with no network dependency, so a studio that's lost its own
+    // link to the plotter (e.g. a phone-bridge that also serves as its WiFi AP
+    // going out of range) can report the job as failed/gone even though the
+    // draw is still going. Ask the plotter directly instead; only its own
+    // live state can end the job from here on — no percentage tracking, it's
+    // all-or-nothing once a $SD/Run draw is underway.
     const st = await fetchPlotterStatus();
     updatePauseBtn();
-    if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+    if (st === 'Run' || st === 'Hold' || st === 'Jog') { everRun = true; idleTicks = 0; }
+    else if (st === 'Idle') {
+      if (everRun) { ringSet(100); finishPlotting('Done.', false); return; }
+      if (++idleTicks >= MAX_IDLE_TICKS) { finishPlotting('Failed: SD run did not start', true); return; }
+    } else if (st === 'Alarm') { finishPlotting('Stopped (alarm).', true); return; }
+    $('plot-status').textContent = (st === 'offline')
+      ? 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)'
+      : 'Drawing…';
   }, 1500);
 }
 
