@@ -2034,7 +2034,12 @@ function startSdMonitor() {
     const st = await plStatus();                 // sends ? (reconnects if needed)
     if (st === 'offline') { $('plot-status').textContent = 'Plotter drawing — phone link dropped (reconnecting…)'; return; }
     if (st === 'Run' || st === 'Hold' || st === 'Jog' || PL.sdPercent != null) sawRun = true;
-    if (PL.sdPercent != null) progressSet(Math.min(100, Math.round(PL.sdPercent)));
+    // FluidNC's SD:% is how far it has READ the file, not how much motion has
+    // actually been executed — reading/queuing lines is far faster than drawing
+    // them, so it reaches 100 long before the pen is actually done. Cap the
+    // in-progress reading below 100 so the ring only ever hits 100 at real
+    // completion (below, via the Idle transition), not from this metric alone.
+    if (PL.sdPercent != null) progressSet(Math.min(99, Math.round(PL.sdPercent)));
     updatePauseBtn();
     if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
     else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
@@ -2061,12 +2066,17 @@ function beginProgress() {
         if (st === 'Run' || st === 'Hold' || st === 'Jog') sawRun = true;
         if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
         else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+        else if (st === 'offline') $('plot-status').textContent = 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)';
       }
       return;
     }
     blanks = 0;
     if (p.running || p.sent) sawRun = true;
-    if (p.total) progressSet(Math.min(100, Math.round(100 * p.sent / p.total)));
+    // Same FluidNC SD:% caveat as startSdMonitor() above: it's file-read
+    // progress, not draw completion, and races to 100 well before the pen is
+    // actually done. Cap below 100 so only the real Idle-transition below can
+    // ever show 100%.
+    if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
     if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
     if (p.done) {
       ringSet(100);
