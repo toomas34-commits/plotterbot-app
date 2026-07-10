@@ -356,6 +356,16 @@
       <button type="button" class="btn btn-ghost" id="open-fluidnc-btn" style="margin-top:10px;width:100%;">Open FluidNC dashboard</button>
     </div>
 
+    <div class="field">
+      <label>Draw speed (mm/min)</label>
+      <input type="number" id="draw-speed" min="100" max="8000" step="100" inputmode="numeric"/>
+    </div>
+    <div class="field">
+      <label>Move speed (mm/min)</label>
+      <input type="number" id="move-speed" min="100" max="8000" step="100" inputmode="numeric"/>
+      <div class="note" style="margin-top:6px;">How fast the pen draws vs. how fast it travels between strokes. Saved on this phone — unaffected by turning the plotter off.</div>
+    </div>
+
     <div>
       <div class="sub-label" style="margin-bottom:10px;">Plotter controls</div>
       <div class="status-row" style="margin-top:0;margin-bottom:12px;">
@@ -380,6 +390,13 @@
         <button type="button" class="toggle" id="wifi-toggle" role="switch" aria-checked="false" aria-label="WiFi mode"></button>
       </div>
       <div class="note">Off = home network (tries your WiFi first). On = hotspot only. Restart always restores home-network mode.</div>
+    </div>
+
+    <div>
+      <div class="sub-label" style="margin-bottom:10px;">Custom G-code</div>
+      <button type="button" class="btn btn-ghost" id="pick-gcode-btn" style="width:100%;">Pick a G-code file to draw</button>
+      <input type="file" id="gcode-file-input" accept=".gcode,.nc,.tap,.txt" style="display:none;"/>
+      <div class="note" style="margin-top:10px;">Draws the file exactly as it is — the speed settings above don't apply to it.</div>
     </div>
 
     <button class="btn btn-ghost" data-close="settings-modal">Done</button>
@@ -988,6 +1005,27 @@ try {
   const sp = localStorage.getItem('plotterbot_proxy'); if (sp) $('proxy-addr').value = sp;
   const tk = localStorage.getItem('plotterbot_token'); if (tk) $('token-addr').value = tk;
 } catch (e) {}
+// Draw/move speed (mm/min) -- persisted per phone (localStorage), independent of the
+// plotter's own power state. Defaults mirror proxy.py's DEFAULT_DRAW_SPEED/DEFAULT_MOVE_SPEED
+// so an untouched setting reproduces the historical F3000 behavior exactly.
+const DEFAULT_DRAW_SPEED = 3000, DEFAULT_MOVE_SPEED = 5000;
+try {
+  $('draw-speed').value = localStorage.getItem('plotterbot_draw_speed') || DEFAULT_DRAW_SPEED;
+  $('move-speed').value = localStorage.getItem('plotterbot_move_speed') || DEFAULT_MOVE_SPEED;
+} catch (e) {}
+function getSpeedSettings() {
+  const d = parseFloat($('draw-speed').value), m = parseFloat($('move-speed').value);
+  return {
+    draw_speed: (isFinite(d) && d > 0) ? d : DEFAULT_DRAW_SPEED,
+    move_speed: (isFinite(m) && m > 0) ? m : DEFAULT_MOVE_SPEED,
+  };
+}
+$('draw-speed').addEventListener('input', () => {
+  try { localStorage.setItem('plotterbot_draw_speed', $('draw-speed').value.trim()); } catch (e) {}
+});
+$('move-speed').addEventListener('input', () => {
+  try { localStorage.setItem('plotterbot_move_speed', $('move-speed').value.trim()); } catch (e) {}
+});
 const pageHost = pagePlotterHost();
 if (pageHost) applyAutoPlotterAddr(pageHost);
 else {
@@ -1667,7 +1705,10 @@ async function buildPoemGcode(title, lines, onProgress) {
   const avgRowHeightMm = (rowLineH.reduce((a, b) => a + b, 0) / rowLineH.length) * scale;
   const joinGapMm = Math.min(2.5, avgRowHeightMm * 0.12);
   const joined = GCODE.joinStrokes(allStrokes, joinGapMm);
-  const built = GCODE.buildGcode(joined, { bed: BED_MM, feed: 3000 });
+  // Only draw speed applies here -- G0 travel between letters ignores the F word on real
+  // GRBL/FluidNC hardware (a true rapid), and those hops are short enough that making them
+  // separately configurable isn't worth touching the shared handwriting-demo engine for.
+  const built = GCODE.buildGcode(joined, { bed: BED_MM, feed: getSpeedSettings().draw_speed });
   return { gcode: built.gcode, stats: computeGcodeStats(built.gcode) };
 }
 
@@ -1739,7 +1780,7 @@ async function imageToGcode(lineartUrl) {
       r = await fetch(tokUrl(base + '/image2gcode_start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: lineartUrl, bed_mm: BED_MM }),
+        body: JSON.stringify({ image: lineartUrl, bed_mm: BED_MM, ...getSpeedSettings() }),
         signal: ctrl.signal,
       });
     } catch (e) {
@@ -2048,50 +2089,44 @@ function startSdMonitor() {
 function beginProgress() {
   progressStart();
   if (progressTimer) clearInterval(progressTimer);
-  // jobStarted: the proxy has told the plotter to $SD/Run (its own "drawing"
-  // status) — until then we still trust the proxy's upload/kickoff tracking.
-  // everRun: the plotter's OWN live status has actually shown Run/Hold/Jog at
-  // least once — an Idle reading before that just means it hasn't physically
-  // started moving yet (normal for a few seconds after $SD/Run), not that
-  // it's done. idleTicks mirrors the proxy's own ~30s "SD run did not start"
-  // grace window so this can't hang forever if it genuinely never starts.
-  let jobStarted = false, everRun = false, idleTicks = 0;
-  const MAX_IDLE_TICKS = 20; // ~30s at 1.5s/tick
+  let sawRun = false, blanks = 0;
   progressTimer = setInterval(async () => {
-    // Before the draw is confirmed running, still trust the proxy's own
-    // upload/kickoff tracking (SD upload failed, SD run rejected, etc.) — those
-    // happen fast, well before any lost-contact scenario is plausible.
-    if (!jobStarted) {
-      const base = studioBase();   // re-read each tick in case the tunnel fails over
-      if (!base) return;
-      let p;
-      try {
-        p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
-      } catch (e) { return; }
-      if (p && p.error) { finishPlotting('Failed: ' + p.error, true); return; }
-      if (p && p.done) { ringSet(100); finishPlotting('Done.', false); return; }
-      if (p && (p.status === 'drawing' || p.sent)) jobStarted = true;
-      if (p) $('plot-status').textContent = (p.status === 'uploading') ? 'Sending to plotter…' : 'Starting…';
-      if (!jobStarted) return;
+    const base = studioBase();   // re-read each tick in case the tunnel fails over
+    if (!base) return;
+    let p;
+    try {
+      p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
+    } catch (e) { return; }
+    // Proxy has no active job record (e.g. it restarted mid-plot). The SD draw keeps
+    // going on the plotter, so after a few blank replies stop trusting /plot_progress
+    // and drive completion from the plotter's own status instead of spinning forever.
+    if (p && !p.running && !p.done && !p.error) {
+      if (++blanks >= 4) {
+        const st = await fetchPlotterStatus();
+        updatePauseBtn();
+        if (st === 'Run' || st === 'Hold' || st === 'Jog') sawRun = true;
+        if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
+        else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+        else if (st === 'offline') $('plot-status').textContent = 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)';
+      }
+      return;
     }
-    // Once the proxy has told the plotter to run, stop trusting the proxy's
-    // own SD-run job-tracking for pass/fail — $SD/Run executes locally on the
-    // controller with no network dependency, so a studio that's lost its own
-    // link to the plotter (e.g. a phone-bridge that also serves as its WiFi AP
-    // going out of range) can report the job as failed/gone even though the
-    // draw is still going. Ask the plotter directly instead; only its own
-    // live state can end the job from here on — no percentage tracking, it's
-    // all-or-nothing once a $SD/Run draw is underway.
+    blanks = 0;
+    if (p.running || p.sent) sawRun = true;
+    // Same FluidNC SD:% caveat as startSdMonitor() above: it's file-read
+    // progress, not draw completion, and races to 100 well before the pen is
+    // actually done. Cap below 100 so only the real Idle-transition below can
+    // ever show 100%.
+    if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
+    if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
+    if (p.done) {
+      ringSet(100);
+      finishPlotting('Done.', false);
+      return;
+    }
     const st = await fetchPlotterStatus();
     updatePauseBtn();
-    if (st === 'Run' || st === 'Hold' || st === 'Jog') { everRun = true; idleTicks = 0; }
-    else if (st === 'Idle') {
-      if (everRun) { ringSet(100); finishPlotting('Done.', false); return; }
-      if (++idleTicks >= MAX_IDLE_TICKS) { finishPlotting('Failed: SD run did not start', true); return; }
-    } else if (st === 'Alarm') { finishPlotting('Stopped (alarm).', true); return; }
-    $('plot-status').textContent = (st === 'offline')
-      ? 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)'
-      : 'Drawing…';
+    if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
   }, 1500);
 }
 
@@ -2214,6 +2249,33 @@ $('ctrl-clear-alarm').addEventListener('click', async () => {
   }
   await new Promise(r => setTimeout(r, 400));
   refreshSettingsPlotter();
+});
+
+$('pick-gcode-btn').addEventListener('click', () => {
+  if (plottingActive) { alert('A drawing is already in progress. Wait for it to finish first.'); return; }
+  $('gcode-file-input').value = '';   // reset so picking the same file twice still fires 'change'
+  $('gcode-file-input').click();
+});
+$('gcode-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  let text;
+  try {
+    text = await file.text();
+  } catch (err) {
+    alert('Could not read that file.');
+    return;
+  }
+  if (!text.trim()) {
+    alert('That file looks empty.');
+    return;
+  }
+  // Skip generation entirely and go straight to the usual plot flow (gate -> SD/relay),
+  // exactly as a generated drawing would -- but drawn exactly as given, no speed overrides.
+  gcodeText = text;
+  gcodeStats = computeGcodeStats(text);
+  closeModal('settings-modal');
+  openGate();
 });
 
 $('wifi-toggle').addEventListener('click', async () => {
