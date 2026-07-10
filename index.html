@@ -19,6 +19,7 @@
     --panel:   #EFEDE8;
     --red:     #B84040;
     --green:   #4A7A52;
+    --green-d: #3A6142;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -121,10 +122,12 @@
   .btn-go:hover { background: var(--brass-d); }
   .btn-ghost { background: var(--paper); color: var(--ink); border: 1px solid var(--rule); }
   .btn-ghost:hover { border-color: var(--ink); }
+  .btn-send { background: var(--green); color: var(--paper); }
+  .btn-send:hover { background: var(--green-d); }
   .btn:disabled { background: var(--ink3); color: var(--paper); cursor: not-allowed; opacity: .7; }
   .btn-ghost:disabled { background: var(--paper); color: var(--ink3); border-color: var(--rule); }
 
-  #process-btn, #send-btn { display: none; }
+  #process-btn { display: none; }
   #quality-screen, #photo-screen, #desc-screen, #poem-screen { display: none; }
   .qrow { display: flex; gap: 10px; align-items: stretch; }
   .qrow input[type="text"] { flex: 1; }
@@ -313,8 +316,6 @@
   </div>
 
   <button class="btn btn-primary" id="process-btn">Create drawing</button>
-
-  <button class="btn btn-go" id="send-btn">Send to plotter</button>
 </div>
 
 <div class="modal" id="plot-overlay">
@@ -328,6 +329,8 @@
     </div>
     <div id="plot-status">Sending to plotter…</div>
     <div id="gen-warn" style="display:none;">⚠ Keep this page open — preparing your poem. Don't close the phone or browser.</div>
+    <button class="btn btn-send" id="result-send" style="display:none;">Send to plotter</button>
+    <button class="btn btn-ghost" id="result-cancel" style="display:none;">Cancel</button>
     <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
     <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
   </div>
@@ -1269,7 +1272,28 @@ function genOverlayError(msg) {
 function resetActionSlot() {
   gcodeText = null; gcodeStats = null;
   $('process-btn').style.display = 'none';
-  $('send-btn').style.display = 'none';
+}
+
+// The "drawing's ready" screen: reuses the plot-overlay sheet (already open, showing the
+// generation ring) but swaps its content for two centered buttons instead of closing it and
+// revealing a same-looking button at the bottom of the page -- the two used to be easy to
+// mix up (Create drawing / Send to plotter, both at the bottom, similar styling).
+function showResultScreen() {
+  overlayMode = 'result';
+  $('plot-ring').style.display = 'none';
+  $('plot-status').style.display = 'none';
+  $('gen-warn').style.display = 'none';
+  $('plot-cancel').style.display = 'none';
+  $('plot-done').style.display = 'none';
+  $('result-send').style.display = '';
+  $('result-send').disabled = appBlocked;
+  $('result-cancel').style.display = '';
+}
+function resetResultScreen() {
+  $('plot-ring').style.display = '';
+  $('plot-status').style.display = '';
+  $('result-send').style.display = 'none';
+  $('result-cancel').style.display = 'none';
 }
 
 function showModePicker() {
@@ -1384,7 +1408,7 @@ function evaluateReadiness() {
   } else {
     banner.style.display = 'none';
   }
-  $('send-btn').disabled = appBlocked;
+  $('result-send').disabled = appBlocked;
   updateProcessBtn();
 }
 
@@ -1931,7 +1955,6 @@ $('process-btn').addEventListener('click', async () => {
   if (!base) { openModal('settings-modal'); $('proxy-addr').focus(); return; }
 
   $('process-btn').style.display = 'none';
-  $('send-btn').style.display = 'none';
   genOverlayStart();              // circular loading screen while the art is made
 
   let poemWakeLock = null;
@@ -1991,14 +2014,31 @@ $('process-btn').addEventListener('click', async () => {
   estProg.stop();
   releaseWakeLock(poemWakeLock);
   $('gen-warn').style.display = 'none';
+
+  // Silent pre-flight safety pass, same one a picked G-code file gets -- this app's own
+  // generated drawings should already be clean (server-side clamping/G1-only for photo/desc,
+  // the same computeGcodeStats-shaped output for poem), so in practice this is a no-op, but
+  // it's cheap defense-in-depth against ever sending something unsafe to the plotter. No
+  // alert here (unlike the file picker) -- nothing to tell the user about on their own drawing.
+  const clean = sanitizeGcode(gcodeText);
+  const fixed = repairBadArcs(clean.gcode);
+  gcodeText = fixed.gcode;
+  if (clean.notes.length || fixed.repaired) gcodeStats = computeGcodeStats(gcodeText);
+
   ringSet(100);
-  closeModal('plot-overlay');
-  $('send-btn').style.display = 'block';
+  showResultScreen();
 });
 
-$('send-btn').addEventListener('click', () => {
+$('result-send').addEventListener('click', () => {
   if (!gcodeText) { alert('Make a drawing first.'); return; }
+  closeModal('plot-overlay');
+  resetResultScreen();
   openGate();
+});
+$('result-cancel').addEventListener('click', () => {
+  closeModal('plot-overlay');
+  resetResultScreen();
+  showModePicker();
 });
 
 function showGateStep(n) {
@@ -2122,7 +2162,7 @@ function lockControls(locked) {
     : currentMode === 'poem' ? (!$('poem-name').value.trim() || poemAnsweredCount() < POEM_MIN_ANSWERED)
     : true
   );
-  $('send-btn').disabled = locked;
+  $('result-send').disabled = locked;
   $('pick-photo').style.pointerEvents = locked ? 'none' : '';
   $('pick-desc').style.pointerEvents = locked ? 'none' : '';
   $('pick-poem').style.pointerEvents = locked ? 'none' : '';
