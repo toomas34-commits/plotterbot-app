@@ -396,7 +396,7 @@
       <div class="sub-label" style="margin-bottom:10px;">Custom G-code</div>
       <button type="button" class="btn btn-ghost" id="pick-gcode-btn" style="width:100%;">Pick a G-code file to draw</button>
       <input type="file" id="gcode-file-input" accept=".gcode,.nc,.tap,.txt" style="display:none;"/>
-      <div class="note" style="margin-top:10px;">Draws the file exactly as it is — the speed settings above don't apply to it.</div>
+      <div class="note" style="margin-top:10px;">Draws the file as given (speed settings above don't apply) — automatically fixed if anything in it would be unsafe on this plotter.</div>
     </div>
 
     <button class="btn btn-ghost" data-close="settings-modal">Done</button>
@@ -1564,8 +1564,84 @@ function releaseWakeLock(lock) {
   if (lock) { try { lock.release(); } catch (e) {} }
 }
 
-// ── Poem mode: browser-side G-code stats (mirrors proxy.py _gcode_stats, since
-// the poem's G-code is built here, not returned by /image2gcode) ───────────────
+// ── Custom G-code upload: pre-flight safety pass ────────────────────────────────
+// This app's own generated drawings never need this (they're already known-safe).
+// A picked file is arbitrary, and this machine has NO soft limits, NO hard limits,
+// and NO homing configured (config.yaml, deliberately -- it's zeroed by hand) --
+// so nothing on the controller itself protects against a bad file; it just does
+// whatever the file says, including driving the mechanism physically past its
+// travel or interpreting every coordinate in the wrong units. Runs BEFORE
+// repairBadArcs, since clamping a coordinate can turn a previously-valid arc
+// invalid (the fix then chains into that pass).
+const FALLBACK_FEED_MM_MIN = 1000;   // only used if a file never sets a feed rate at all
+function sanitizeGcode(gtext, bed) {
+  bed = bed || BED_MM;
+  let cx = 0, cy = 0, penDown = false, sawFeed = false;
+  let stripped$ = 0, strippedHome = 0, strippedM = 0, clamped = 0, normalizedModal = 0, drags = 0;
+  const out = [];
+  gtext.split('\n').forEach(raw => {
+    const line = raw.replace(/\r$/, '');
+    let s = line.trim();
+    if (!s) return;
+    if (s[0] === '$') { stripped$++; return; }         // system command ($H etc), not real G-code
+
+    const cmd0 = s.split(/\s+/)[0].toUpperCase();
+    if (/^G0*(28|30)(\.\d+)?$/.test(cmd0)) { strippedHome++; return; }   // no stored home -- goes nowhere safe
+
+    // Force mm / absolute / XY-plane wherever a line tries to leave them -- this whole
+    // pipeline assumes all three, and a bad/missing declaration otherwise inherits
+    // whatever the controller's LAST job left set.
+    let norm = s
+      .replace(/\bG20\b/gi, () => { normalizedModal++; return 'G21'; })
+      .replace(/\bG91\b/gi, () => { normalizedModal++; return 'G90'; })
+      .replace(/\bG1[89]\b/gi, () => { normalizedModal++; return 'G17'; });
+
+    // Strip M-codes with no safe meaning on an unattended single-pen plotter: M0/M1 pause
+    // (nothing can ever resume it -- no cycle-start button wired), M6 tool change (no tool
+    // changer), M112 emergency stop.
+    norm = norm.replace(/\bM(\d+)\b/gi, (whole, numStr) => {
+      const n = parseInt(numStr, 10);
+      if (n === 0 || n === 1 || n === 6 || n === 112) { strippedM++; return ''; }
+      return whole;
+    }).trim();
+    if (!norm) return;
+
+    const flat = norm.replace(/\s+/g, ' ');
+    if (flat === 'M3 S0' || flat === 'M5') penDown = false;
+    else if (flat === 'M3 S1000' || flat === 'M3') penDown = true;
+
+    const move = norm.match(/^(G0*[0-3])\s+X(-?[\d.]+)\s+Y(-?[\d.]+)/i);
+    if (move) {
+      const num = parseInt(move[1].replace(/^G/i, ''), 10);   // "G0"/"G00" -> 0, not "" (leading-zero-safe)
+      const x = parseFloat(move[2]), y = parseFloat(move[3]);
+      const cxb = Math.min(bed, Math.max(0, x)), cyb = Math.min(bed, Math.max(0, y));
+      if (cxb !== x || cyb !== y) {
+        clamped++;
+        norm = norm.replace(/X-?[\d.]+/i, 'X' + cxb.toFixed(3)).replace(/Y-?[\d.]+/i, 'Y' + cyb.toFixed(3));
+      }
+      if (num === 0 && penDown) drags++;                // rapid travel with the pen still down
+      const needsFeed = num === 1 || num === 2 || num === 3;
+      if (needsFeed && !sawFeed && !/\bF-?[\d.]+/i.test(norm)) {
+        norm = norm.replace(/^(G0*[123])/i, '$1 F' + FALLBACK_FEED_MM_MIN);
+      }
+      cx = cxb; cy = cyb;
+    }
+    if (/\bF-?[\d.]+/i.test(norm)) sawFeed = true;
+    out.push(norm);
+  });
+
+  const notes = [];
+  if (stripped$) notes.push('removed ' + stripped$ + ' unsupported command' + (stripped$ > 1 ? 's' : '') + ' ($...)');
+  if (strippedHome) notes.push('removed ' + strippedHome + ' "go to undefined home" command' + (strippedHome > 1 ? 's' : '') + ' (G28/G30 -- this plotter has no stored home)');
+  if (strippedM) notes.push('removed ' + strippedM + ' unsupported command' + (strippedM > 1 ? 's' : '') + ' (pause/tool-change/stop)');
+  if (clamped) notes.push('pulled ' + clamped + ' coordinate' + (clamped > 1 ? 's' : '') + ' back onto the ' + bed + 'x' + bed + 'mm bed');
+  if (normalizedModal) notes.push('forced safe units/mode (mm, absolute, XY-plane) throughout');
+  if (drags) notes.push('warning: ' + drags + ' rapid move' + (drags > 1 ? 's' : '') + ' happened with the pen still down -- may drag a line across the page');
+
+  const gcode = 'G21\nG90\nG17\n' + out.join('\n') + '\n';
+  return { gcode, notes };
+}
+
 // Repair genuinely-broken G2/G3 arcs before a custom-uploaded G-code file ever reaches the
 // plotter. This app's own pipeline never emits arcs (fluidnc.toml is G1-only), so a picked
 // file is the only way this hardware ever sees G2/G3 -- and some external CAM/tile-export
@@ -2304,14 +2380,19 @@ $('gcode-file-input').addEventListener('change', async (e) => {
     alert('That file looks empty.');
     return;
   }
-  const { gcode, repaired } = repairBadArcs(text);
+  const clean = sanitizeGcode(text);
+  const { gcode, repaired } = repairBadArcs(clean.gcode);
+  const notes = clean.notes.slice();
   if (repaired > 0) {
-    alert('Found and fixed ' + repaired + ' broken curve command' + (repaired > 1 ? 's' : '') +
-      ' in this file (invalid arc data that would have stopped the plotter mid-draw) — replaced with a straight line.');
+    notes.push('fixed ' + repaired + ' broken curve command' + (repaired > 1 ? 's' : '') +
+      ' (invalid arc data that would have stopped the plotter mid-draw) -- replaced with a straight line');
+  }
+  if (notes.length) {
+    alert('Made this file safe to plot on this machine:\n\n' + notes.map(n => '- ' + n).join('\n'));
   }
   // Skip generation entirely and go straight to the usual plot flow (gate -> SD/relay),
-  // exactly as a generated drawing would -- but drawn exactly as given (beyond the arc repair
-  // above), no speed overrides.
+  // exactly as a generated drawing would -- but drawn exactly as given (beyond the safety
+  // fixes above), no speed overrides.
   gcodeText = gcode;
   gcodeStats = computeGcodeStats(gcode);
   closeModal('settings-modal');
