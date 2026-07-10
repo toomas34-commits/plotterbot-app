@@ -1570,14 +1570,15 @@ function releaseWakeLock(lock) {
 // plotter. This app's own pipeline never emits arcs (fluidnc.toml is G1-only), so a picked
 // file is the only way this hardware ever sees G2/G3 -- and some external CAM/tile-export
 // tools have curve-fitting bugs that emit a degenerate arc (e.g. I0 J0, putting the center
-// exactly on the start point -- a zero-radius circle) whose end point doesn't actually lie on
-// that circle. FluidNC can't resolve that and drops into Alarm mid-plot (confirmed live: one
-// such line -- "G2 X139.291 Y0.033 I0 J0" -- stopped a real plot partway through). Checks the
-// start-radius vs end-radius implied by each arc's own I/J against a tolerance well above
-// GRBL's own (a few microns) but well below a genuinely broken arc (over a millimetre off in
-// the field case), so ordinary floating-point rounding in valid arcs is never touched.
+// exactly on the start point) whose end point doesn't actually lie on the circle its own I/J
+// describe. FluidNC can't resolve that and drops into Alarm mid-plot (confirmed live, twice:
+// a ~1.1mm-off arc alarmed out one plot, and a ~0.005mm-off arc -- on a small ~2mm-radius
+// curve -- alarmed out a second, later, plot of the same file). A flat tolerance missed the
+// second one, so this now mirrors GRBL's OWN arc radius-error check (gcode.c): reject if the
+// start/end radius mismatch exceeds 0.005mm AND exceeds 0.1% of the radius -- an absolute
+// floor for small arcs, a proportional (and much looser) tolerance for large ones. Anything
+// this lets through is, by construction, an arc GRBL itself would accept.
 function repairBadArcs(gtext) {
-  const ARC_TOL_MM = 0.02;
   let cx = 0, cy = 0, repaired = 0;
   const lines = gtext.split('\n').map(raw => {
     const s = raw.trim();
@@ -1586,7 +1587,8 @@ function repairBadArcs(gtext) {
       const x = parseFloat(arc[2]), y = parseFloat(arc[3]), i = parseFloat(arc[4]), j = parseFloat(arc[5]);
       const centerX = cx + i, centerY = cy + j;
       const r1 = Math.hypot(cx - centerX, cy - centerY), r2 = Math.hypot(x - centerX, y - centerY);
-      const bad = Math.abs(r1 - r2) > ARC_TOL_MM;
+      const deltaR = Math.abs(r1 - r2);
+      const bad = deltaR > 0.005 && (deltaR > 0.5 || deltaR > 0.001 * r2);
       cx = x; cy = y;
       if (bad) { repaired++; return 'G1 X' + arc[2] + ' Y' + arc[3]; }
       return raw;
