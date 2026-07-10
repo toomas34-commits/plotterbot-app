@@ -1566,6 +1566,38 @@ function releaseWakeLock(lock) {
 
 // ── Poem mode: browser-side G-code stats (mirrors proxy.py _gcode_stats, since
 // the poem's G-code is built here, not returned by /image2gcode) ───────────────
+// Repair genuinely-broken G2/G3 arcs before a custom-uploaded G-code file ever reaches the
+// plotter. This app's own pipeline never emits arcs (fluidnc.toml is G1-only), so a picked
+// file is the only way this hardware ever sees G2/G3 -- and some external CAM/tile-export
+// tools have curve-fitting bugs that emit a degenerate arc (e.g. I0 J0, putting the center
+// exactly on the start point -- a zero-radius circle) whose end point doesn't actually lie on
+// that circle. FluidNC can't resolve that and drops into Alarm mid-plot (confirmed live: one
+// such line -- "G2 X139.291 Y0.033 I0 J0" -- stopped a real plot partway through). Checks the
+// start-radius vs end-radius implied by each arc's own I/J against a tolerance well above
+// GRBL's own (a few microns) but well below a genuinely broken arc (over a millimetre off in
+// the field case), so ordinary floating-point rounding in valid arcs is never touched.
+function repairBadArcs(gtext) {
+  const ARC_TOL_MM = 0.02;
+  let cx = 0, cy = 0, repaired = 0;
+  const lines = gtext.split('\n').map(raw => {
+    const s = raw.trim();
+    const arc = s.match(/^(G0?[23])\s+X(-?[\d.]+)\s+Y(-?[\d.]+)\s+I(-?[\d.]+)\s+J(-?[\d.]+)/i);
+    if (arc) {
+      const x = parseFloat(arc[2]), y = parseFloat(arc[3]), i = parseFloat(arc[4]), j = parseFloat(arc[5]);
+      const centerX = cx + i, centerY = cy + j;
+      const r1 = Math.hypot(cx - centerX, cy - centerY), r2 = Math.hypot(x - centerX, y - centerY);
+      const bad = Math.abs(r1 - r2) > ARC_TOL_MM;
+      cx = x; cy = y;
+      if (bad) { repaired++; return 'G1 X' + arc[2] + ' Y' + arc[3]; }
+      return raw;
+    }
+    const move = s.match(/^(G0?[01])\s+X(-?[\d.]+)\s+Y(-?[\d.]+)/i);
+    if (move) { cx = parseFloat(move[2]); cy = parseFloat(move[3]); }
+    return raw;
+  });
+  return { gcode: lines.join('\n'), repaired };
+}
+
 function computeGcodeStats(gtext) {
   let cx = 0, cy = 0, pen = false, draw = 0, trav = 0, lifts = 0;
   gtext.split('\n').forEach(raw => {
@@ -2270,10 +2302,16 @@ $('gcode-file-input').addEventListener('change', async (e) => {
     alert('That file looks empty.');
     return;
   }
+  const { gcode, repaired } = repairBadArcs(text);
+  if (repaired > 0) {
+    alert('Found and fixed ' + repaired + ' broken curve command' + (repaired > 1 ? 's' : '') +
+      ' in this file (invalid arc data that would have stopped the plotter mid-draw) — replaced with a straight line.');
+  }
   // Skip generation entirely and go straight to the usual plot flow (gate -> SD/relay),
-  // exactly as a generated drawing would -- but drawn exactly as given, no speed overrides.
-  gcodeText = text;
-  gcodeStats = computeGcodeStats(text);
+  // exactly as a generated drawing would -- but drawn exactly as given (beyond the arc repair
+  // above), no speed overrides.
+  gcodeText = gcode;
+  gcodeStats = computeGcodeStats(gcode);
   closeModal('settings-modal');
   openGate();
 });
