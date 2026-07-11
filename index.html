@@ -857,7 +857,13 @@ async function plSdRun(gcode) {
 
 function plStop() { PL.cancel = true; plRealtime(0x18); }  // soft reset: halt + pen up (aborts SD run too)
 
-async function fetchPlotterStatus() {
+async function fetchPlotterStatus(allowDuringPlot) {
+  // Structural guard (see CLAUDE.md "fire-and-forget" plot design): while a draw is
+  // active, nothing should be asking the plotter for status automatically — that open
+  // connection is exactly what can freeze FluidNC if WiFi drops mid-draw. Return the
+  // cached state instead of contacting it. The one deliberate exception is Stop/Cancel
+  // (safeStop passes allowDuringPlot=true) reconnecting after its own soft-reset.
+  if (plottingActive && !allowDuringPlot) return plotterState;
   if (PL.mode) { const st = await plStatus(); plotterState = st; return st; }
   const base = studioBase(), host = plotterHost();
   // host may be blank for a remote guest (page served from a public host); the
@@ -957,8 +963,19 @@ function renderSettingsPlotter(st) {
 
 async function checkPlotter() {
   const dot = $('plotter-dot'), msg = $('plotter-msg');
+  // Fire-and-forget guard (see CLAUDE.md "fire-and-forget" plot design): this is the
+  // periodic background poll (every 8 s, or 1.5 s while Settings is open) — exactly the
+  // kind of recurring connection that used to stay open across a whole draw and let
+  // FluidNC freeze if WiFi dropped mid-reply. Skip it entirely while a draw is active;
+  // the plot overlay's own status text is the only feedback during a draw now.
+  if (plottingActive) {
+    dot.style.background = 'var(--brass)';
+    msg.textContent = 'Drawing — not polling the plotter until it finishes.';
+    return;
+  }
   if (PL.mode) {
     const st = await fetchPlotterStatus();
+    checkDrawBiasAgainst(st);
     if (st === 'offline') { dot.style.background = 'var(--red)'; msg.textContent = 'Plotter link lost — reconnecting…'; }
     else {
       const sd = plottingActive ? '' : (await plSdAvailable() ? '' : '  ⚠ no SD card');
@@ -981,6 +998,7 @@ async function checkPlotter() {
   // own PLOTTER_HOST default, so show a neutral label instead of demanding an IP.
   const where = host || 'the plotter';
   const st = await fetchPlotterStatus();
+  checkDrawBiasAgainst(st);
   if (st === 'offline') {
     dot.style.background = 'var(--red)';
     msg.textContent = 'Cannot reach ' + where + ' via studio.';
@@ -1156,6 +1174,37 @@ let progressTimer = null;
 let plottingActive = false;
 let gcodeText = null;
 let gcodeStats = null;
+// Fire-and-forget SD-plot progress (see CLAUDE.md "Losing contact with the plotter
+// mid-draw"): the ring is a time estimate, never a live confirmation. DRAW_EST_BIAS
+// mirrors the proxy's DRAW_ESTIMATE_BIAS (inflates the estimate so "finished" is never
+// shown before the pen actually is); PLOT_DONE_MSG is neutral on purpose — it is a guess,
+// not a report from the plotter.
+const DRAW_EST_BIAS = 1.2;
+const PLOT_DONE_MSG = 'Drawing should be finished — collect it once the pen has stopped.';
+// Self-calibrating estimate (Phase 3a): we never contact the plotter WHILE it draws, so we
+// can't measure real draw time directly. But the background poll (checkPlotter) resumes
+// automatically the instant plottingActive goes false — right after we've shown
+// PLOT_DONE_MSG — and that poll would have happened anyway. If it finds the plotter STILL
+// busy, our estimate ran short; remember that and lean more conservative next time. This
+// only ever pushes the bias UP (capped), so it can never make "finished" appear earlier.
+let pendingDrawBiasCheck = false;
+const DRAW_BIAS_KEY = 'plotterbot_draw_bias_extra';
+function drawBiasExtra() {
+  const v = parseFloat(localStorage.getItem(DRAW_BIAS_KEY));
+  return (v > 0 && v <= 1.0 && isFinite(v)) ? v : 0;
+}
+function bumpDrawBiasExtra() {
+  const v = Math.min(1.0, drawBiasExtra() + 0.15);   // +15% per miss, capped at +100% total
+  try { localStorage.setItem(DRAW_BIAS_KEY, String(v)); } catch (e) {}
+}
+function estimatedDrawMinutes() {
+  return (gcodeStats?.est_minutes || 10) * (1 + drawBiasExtra());
+}
+function checkDrawBiasAgainst(st) {
+  if (!pendingDrawBiasCheck) return;
+  pendingDrawBiasCheck = false;
+  if (st === 'Run' || st === 'Hold' || st === 'Jog') bumpDrawBiasExtra();  // estimate ran short
+}
 let lastStudioOk = null;     // null = not checked yet; true/false after first /health
 let appBlocked = false;      // a connection/plotter issue is blocking new jobs
 let overlayMode = 'plot';    // what the circular overlay's Cancel button does: 'gen' | 'plot'
@@ -2140,7 +2189,7 @@ $('start-btn').addEventListener('click', async () => {
     const r = await fetch(tokUrl(base + '/plot'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gcode: gcodeText, host: plotterHost() }),
+      body: JSON.stringify({ gcode: gcodeText, host: plotterHost(), est_minutes: estimatedDrawMinutes() }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
@@ -2196,6 +2245,10 @@ function finishPlotting(msg, isError) {
   updateProcessBtn();
   updatePauseBtn();
   evaluateReadiness();
+  // Self-calibration (see the DRAW_BIAS_KEY comment above): only a genuine time-estimate
+  // "should be finished" outcome is worth checking — never Stop/cancel/upload-failure,
+  // which aren't a signal about whether the estimate was long enough.
+  if (!isError && msg === PLOT_DONE_MSG) pendingDrawBiasCheck = true;
 }
 
 function progressStart() {
@@ -2237,46 +2290,35 @@ function startSdMonitor() {
   }, 1500);
 }
 function beginProgress() {
+  // Fire-and-forget (see CLAUDE.md "Losing contact with the plotter mid-draw"): the
+  // plotter is never contacted here, during the draw or after. /plot_progress is safe to
+  // poll — it only reads a dict in the proxy's own memory, driven by the proxy's own
+  // time-based estimate (_sd_plot_job), never a live telnet call to the plotter. If that
+  // record ever goes missing (e.g. the proxy process restarted mid-draw), fall back to
+  // the SAME time estimate computed locally — never to asking the plotter directly.
   progressStart();
   if (progressTimer) clearInterval(progressTimer);
-  let sawRun = false, blanks = 0;
+  const estMs = Math.max(5000, estimatedDrawMinutes() * 60000 * DRAW_EST_BIAS);
+  const startTs = Date.now();
   progressTimer = setInterval(async () => {
     const base = studioBase();   // re-read each tick in case the tunnel fails over
-    if (!base) return;
-    let p;
-    try {
-      p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
-    } catch (e) { return; }
-    // Proxy has no active job record (e.g. it restarted mid-plot). The SD draw keeps
-    // going on the plotter, so after a few blank replies stop trusting /plot_progress
-    // and drive completion from the plotter's own status instead of spinning forever.
-    if (p && !p.running && !p.done && !p.error) {
-      if (++blanks >= 4) {
-        const st = await fetchPlotterStatus();
-        updatePauseBtn();
-        if (st === 'Run' || st === 'Hold' || st === 'Jog') sawRun = true;
-        if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
-        else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
-        else if (st === 'offline') $('plot-status').textContent = 'Studio lost contact with the plotter — it may still be drawing (reconnecting…)';
-      }
+    let p = null;
+    if (base) {
+      try {
+        p = await (await fetch(tokUrl(base + '/plot_progress'), { cache: 'no-store' })).json();
+      } catch (e) { p = null; }
+    }
+    if (p && (p.running || p.done || p.error)) {
+      if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
+      if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
+      if (p.done) { ringSet(100); finishPlotting(PLOT_DONE_MSG, false); return; }
       return;
     }
-    blanks = 0;
-    if (p.running || p.sent) sawRun = true;
-    // Same FluidNC SD:% caveat as startSdMonitor() above: it's file-read
-    // progress, not draw completion, and races to 100 well before the pen is
-    // actually done. Cap below 100 so only the real Idle-transition below can
-    // ever show 100%.
-    if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
-    if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
-    if (p.done) {
-      ringSet(100);
-      finishPlotting('Done.', false);
-      return;
-    }
-    const st = await fetchPlotterStatus();
-    updatePauseBtn();
-    if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+    // No usable proxy record this tick — estimate locally rather than reaching for the
+    // plotter's own status.
+    const elapsed = Date.now() - startTs;
+    progressSet(Math.min(99, Math.round(99 * elapsed / estMs)));
+    if (elapsed >= estMs) { ringSet(100); finishPlotting(PLOT_DONE_MSG, false); }
   }, 1500);
 }
 
@@ -2327,7 +2369,7 @@ async function safeStop() {
   for (let i = 0; i < 15; i++) {
     await sleep(900);
     let st = 'offline';
-    try { st = await fetchPlotterStatus(); } catch (e) {}
+    try { st = await fetchPlotterStatus(true); } catch (e) {}  // allowed: user pressed Stop
     if (st === 'offline') continue;                // still rebooting / reconnecting
     try { await plotterCmd('$X'); } catch (e) {}   // clear the post-reset alarm
     try { await plotterCmd('M3 S0'); } catch (e) {}// hold the pen UP explicitly
