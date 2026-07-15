@@ -396,6 +396,15 @@
     </div>
 
     <div>
+      <div class="sub-label" style="margin-bottom:10px;">Pi bridge power</div>
+      <div class="status-row" style="margin-top:0;margin-bottom:12px;">
+        <span class="dot" id="pi-shutdown-dot"></span><span id="pi-shutdown-msg">Not shut down.</span>
+      </div>
+      <button type="button" class="btn btn-ghost" id="pi-shutdown-btn" style="width:100%;">Shut down Pi bridge</button>
+      <div class="note" style="margin-top:10px;">The Pi is powered by the plotter, not its own supply — cutting power without shutting down first can corrupt its memory card. Use this before unplugging or switching off the plotter, and wait for confirmation.</div>
+    </div>
+
+    <div>
       <div class="sub-label" style="margin-bottom:10px;">Custom G-code</div>
       <button type="button" class="btn btn-ghost" id="pick-gcode-btn" style="width:100%;">Pick a G-code file to draw</button>
       <input type="file" id="gcode-file-input" accept=".gcode,.nc,.tap,.txt" style="display:none;"/>
@@ -1150,22 +1159,50 @@ async function resolveStudio() {
   return saved ? studioBase() : '';
 }
 
+// studioReachable tracks a NARROWER signal than lastStudioOk: "did /health answer at
+// all" vs lastStudioOk's "is the studio fully ready to use" (also false when reachable
+// but missing an API key). The Pi bridge is powered FROM the DLC32 (see CLAUDE.md "Pi
+// bridge (USB)") with no separate PSU, so "genuinely unreachable" now overwhelmingly
+// means "still booting Linux + starting the tunnel" right after the plotter is powered
+// on — worth a distinct, friendlier message from "reachable but not configured yet".
+// studioUnreachableSinceTs records when that started (only on the FALSE transition, not
+// every failed poll) so the message can soften from "starting up" to "actually check it"
+// once the boot grace window has clearly passed.
+let studioReachable = null;
+let studioUnreachableSinceTs = null;
+const STUDIO_BOOT_GRACE_MS = 180000; // ~3 min: Pi Zero W boot + cloudflared tunnel registration
+function markStudioUnreachable() { if (studioUnreachableSinceTs === null) studioUnreachableSinceTs = Date.now(); }
+function clearStudioUnreachable() { studioUnreachableSinceTs = null; }
+
 async function checkStudio() {
   const dot = $('proxy-dot'), msg = $('proxy-msg'), base = studioBase();
-  if (!base) { dot.style.background = 'var(--ink3)'; msg.textContent = 'Enter your home address.'; lastStudioOk = false; evaluateReadiness(); return; }
+  if (!base) {
+    dot.style.background = 'var(--ink3)'; msg.textContent = 'Enter your home address.';
+    lastStudioOk = false; studioReachable = false; markStudioUnreachable();
+    evaluateReadiness(); return;
+  }
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 4000);
     const r = await fetch(base + '/health', { cache: 'no-store', signal: c.signal });
     clearTimeout(t);
     const j = await r.json();
+    studioReachable = true; clearStudioUnreachable();
     if (j.ok && j.key_set) { dot.style.background = 'var(--green)'; msg.textContent = 'Connected to ' + base; lastStudioOk = true; }
     else if (j.ok)         { dot.style.background = 'var(--brass)'; msg.textContent = 'Reachable at ' + base + ', but no API key set.'; lastStudioOk = false; }
     else                   { dot.style.background = 'var(--red)';   msg.textContent = 'Reachable but not ready.'; lastStudioOk = false; }
-  } catch (e) { dot.style.background = 'var(--red)'; msg.textContent = 'Cannot reach ' + base + '. Check the address.'; lastStudioOk = false; }
+  } catch (e) {
+    dot.style.background = 'var(--red)'; msg.textContent = 'Cannot reach ' + base + '. Check the address.';
+    lastStudioOk = false; studioReachable = false; markStudioUnreachable();
+  }
   evaluateReadiness();
 }
 resolveStudio().then(() => { checkStudio(); checkPlotter(); });
+// Re-check periodically (was previously only checked once at page load, so the app
+// could never notice the Pi bridge coming back up without a manual reload) -- same
+// cadence as checkPlotter's background poll. /health touches nothing plotter-related,
+// so this is safe to keep running during an active draw too.
+setInterval(checkStudio, 8000);
 
 let currentMode = null;
 let currentQuality = null;   // 'normal' | 'high' -- chosen on quality-screen, photo/desc modes only
@@ -1442,7 +1479,18 @@ function evaluateReadiness() {
   if (plottingActive) { banner.style.display = 'none'; appBlocked = false; return; }
   let issue = null, info = false, unlock = false;
   if (lastStudioOk === null || plotterState === 'unknown') { issue = 'Checking connection…'; info = true; }
-  else if (lastStudioOk === false) issue = 'Can’t reach the studio (your PC). Check it’s on and connected.';
+  else if (studioReachable === false) {
+    // The Pi bridge is powered FROM the plotter (see Settings > Pi bridge power / CLAUDE.md
+    // "Pi bridge (USB)") — right after power-on, "unreachable" almost always just means it's
+    // still booting, not a real problem. Soften the message for the first few minutes, then
+    // treat it as a genuine issue if it's still not up.
+    const stillBooting = studioUnreachableSinceTs && (Date.now() - studioUnreachableSinceTs) < STUDIO_BOOT_GRACE_MS;
+    issue = stillBooting
+      ? 'Waiting for the Pi bridge to start up…'
+      : 'Can’t reach the Pi bridge. Check it’s powered on and connected.';
+    info = stillBooting;
+  }
+  else if (lastStudioOk === false) issue = 'Pi bridge is reachable but not fully set up (no API key) — check its .env.';
   else if (plotterState === 'offline') issue = 'Can’t reach the plotter. Check it’s powered on.';
   else if (plotterState === 'Alarm') { issue = 'Plotter is locked.'; unlock = true; }
   else if (plotterState === 'Run' || plotterState === 'Hold' || plotterState === 'Jog')
@@ -2441,6 +2489,64 @@ $('ctrl-clear-alarm').addEventListener('click', async () => {
   }
   await new Promise(r => setTimeout(r, 400));
   refreshSettingsPlotter();
+});
+
+// Pi bridge power (see Settings > "Pi bridge power" / CLAUDE.md "Pi bridge (USB)"): the
+// Pi has no PSU of its own on this deployment, it's powered FROM the DLC32 -- so cutting
+// the plotter's power without a clean `shutdown -h now` first risks corrupting its SD
+// card. There's no live signal for "the OS has actually finished halting" (once it's
+// down, it can't tell us anything) -- so this polls /health until it stops answering,
+// then waits a short extra safety buffer before declaring it safe to unplug, the same
+// "can't confirm directly, so infer conservatively" approach the fire-and-forget plot
+// design already uses for draw completion.
+async function waitForPiShutdownConfirmed(base, dot, msg) {
+  const POLL_MS = 2000, CONFIRM_FAILS = 3, SAFETY_BUFFER_MS = 8000, TIMEOUT_MS = 90000;
+  const start = Date.now();
+  let consecutiveFails = 0;
+  while (Date.now() - start < TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    const alive = await studioAlive(base);
+    if (!alive) {
+      consecutiveFails++;
+      if (consecutiveFails >= CONFIRM_FAILS) {
+        msg.innerHTML = '<span class="spinner"></span> Confirming…';
+        await new Promise(r => setTimeout(r, SAFETY_BUFFER_MS));
+        dot.style.background = 'var(--green)';
+        msg.textContent = 'Shut down — safe to unplug now.';
+        studioReachable = false; lastStudioOk = false; markStudioUnreachable();
+        evaluateReadiness();
+        return;
+      }
+    } else {
+      consecutiveFails = 0;   // a single blip doesn't count -- it must STAY unreachable
+    }
+  }
+  dot.style.background = 'var(--red)';
+  msg.textContent = "Couldn't confirm shutdown after 90s — check the Pi before unplugging.";
+}
+
+$('pi-shutdown-btn').addEventListener('click', async () => {
+  if (plottingActive) { alert('Wait for the current drawing to finish (or cancel it) before shutting down.'); return; }
+  if (!confirm('Shut down the Pi bridge? Wait for the "safe to unplug" confirmation before switching off the plotter.')) return;
+  const btn = $('pi-shutdown-btn'), dot = $('pi-shutdown-dot'), msg = $('pi-shutdown-msg');
+  const base = studioBase();
+  if (!base) { msg.textContent = 'No studio address set.'; return; }
+  btn.disabled = true;
+  dot.style.background = 'var(--brass)';
+  msg.textContent = 'Sending shutdown…';
+  let r;
+  try {
+    r = await (await fetch(tokUrl(base + '/pi_shutdown'), { method: 'POST' })).json();
+  } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) {
+    dot.style.background = 'var(--red)';
+    msg.textContent = 'Failed: ' + (r.error || 'unknown error');
+    btn.disabled = false;
+    return;
+  }
+  msg.innerHTML = '<span class="spinner"></span> Shutting down… keep it plugged in';
+  await waitForPiShutdownConfirmed(base, dot, msg);
+  btn.disabled = false;
 });
 
 $('pick-gcode-btn').addEventListener('click', () => {
