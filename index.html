@@ -376,7 +376,6 @@
         </div>
       </div>
       <div class="status-row"><span class="dot" id="chk-key-dot"></span><span>Gemini API key</span></div>
-      <div class="status-row"><span class="dot" id="chk-vpype-dot"></span><span>vpype</span></div>
       <div class="status-row"><span class="dot" id="chk-serial-dot"></span><span>USB serial device</span></div>
       <div class="status-row"><span class="dot" id="chk-gist-dot"></span><span id="chk-gist-msg">Tunnel URL publishing</span></div>
     </div>
@@ -388,9 +387,8 @@
     </div>
 
     <div class="field">
-      <label>Plotter address</label>
-      <input type="text" id="plotter-addr" placeholder="auto (leave blank)" autocomplete="off" inputmode="url"/>
-      <div class="status-row"><span class="dot" id="plotter-dot"></span><span id="plotter-msg">Leave blank to use the proxy's own plotter address.</span></div>
+      <label>Plotter</label>
+      <div class="status-row" style="margin-top:0;"><span class="dot" id="plotter-dot"></span><span id="plotter-msg">Checking plotter…</span></div>
       <button type="button" class="btn btn-ghost" id="open-fluidnc-btn" style="margin-top:10px;width:100%;">Open FluidNC dashboard</button>
     </div>
 
@@ -690,22 +688,21 @@ function pagePlotterHost() {
   if (!studioHostLooksLocal(h)) return '';
   return h;
 }
+// The plotter address is NOT user-editable (July 2026 -- the Settings input was
+// removed): it was already a pure auto-filled display of wherever the proxy
+// currently reaches the plotter (config.PLOTTER_HOST), self-synced every poll and
+// never meant as a manual override. It now lives in this variable instead of a
+// DOM field, cached in localStorage only so direct mode / "Open FluidNC dashboard"
+// still work before the first proxy round-trip completes.
+let autoPlotterHost = '';
 function applyAutoPlotterAddr(host) {
-  if (!host) return;
-  const cur = ($('plotter-addr').value || '').trim()
-    .replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:.*$/, '');
-  if (cur === host) return;
-  $('plotter-addr').value = host;
+  if (!host || host === autoPlotterHost) return;
+  autoPlotterHost = host;
   try { localStorage.setItem('plotterbot_plotter', host); } catch (e) {}
 }
-// The Settings "Plotter address" field is meant to be an auto-filled display of
-// wherever the proxy currently reaches the plotter (config.PLOTTER_HOST, kept
-// current via the Bridge app's Settings/scan) -- NOT a sticky manual override.
-// Without this, a value cached here from a past network (e.g. the home IP) looks
-// like a valid LAN address forever and keeps silently overriding the proxy's own
-// current default (the self-heal below only clears values that DON'T look like a
-// LAN host, e.g. a stray *.github.io). Called every checkPlotter() poll so the
-// field self-corrects within one 8s tick instead of requiring the user to clear it.
+// Keeps the auto address current with the proxy's own config.PLOTTER_HOST (kept
+// current via the Bridge app's Settings/scan). Called every checkPlotter() poll so
+// a value cached from a past network self-corrects within one 8s tick.
 async function syncPlotterHostFromProxy(base) {
   try {
     const r = await fetch(tokUrl(base + '/plotter_default_host'), { cache: 'no-store' });
@@ -714,9 +711,7 @@ async function syncPlotterHostFromProxy(base) {
   } catch (e) {}
 }
 function plotterHost() {
-  const v = ($('plotter-addr').value || '').trim()
-    .replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:.*$/, '');
-  return v || defaultPlotterHost();
+  return autoPlotterHost || defaultPlotterHost();
 }
 function plotterHttp() { return 'http://' + plotterHost(); }
 
@@ -1112,13 +1107,11 @@ else {
     // Self-heal: older builds saved the public page host (e.g. *.github.io) here,
     // which the proxy can't reach. Drop any stored value that isn't a LAN address.
     if (pl && !studioHostLooksLocal(pl)) { pl = ''; localStorage.removeItem('plotterbot_plotter'); }
-    if (pl) $('plotter-addr').value = pl;
+    if (pl) autoPlotterHost = pl;
   } catch (e) {}
-  if (!$('plotter-addr').value) $('plotter-addr').value = defaultPlotterHost();
 }
 
 let proxyTimer = null;
-let plotterTimer = null;
 $('proxy-addr').addEventListener('input', () => {
   try { localStorage.setItem('plotterbot_proxy', $('proxy-addr').value.trim()); } catch (e) {}
   clearTimeout(proxyTimer); proxyTimer = setTimeout(checkStudio, 400);
@@ -1126,11 +1119,6 @@ $('proxy-addr').addEventListener('input', () => {
 $('token-addr').addEventListener('input', () => {
   try { localStorage.setItem('plotterbot_token', $('token-addr').value.trim()); } catch (e) {}
   clearTimeout(proxyTimer); proxyTimer = setTimeout(checkStudio, 400);
-});
-$('plotter-addr').addEventListener('input', () => {
-  try { localStorage.setItem('plotterbot_plotter', $('plotter-addr').value.trim()); } catch (e) {}
-  clearTimeout(plotterTimer);
-  plotterTimer = setTimeout(checkPlotter, 400);
 });
 $('open-fluidnc-btn').addEventListener('click', async () => {
   let host = plotterHost();
@@ -1232,7 +1220,8 @@ function renderBridgeDiagnostics(j) {
   field.style.display = '';
   const setDot = (id, ok) => { $(id).style.background = ok ? 'var(--green)' : 'var(--red)'; };
   setDot('chk-key-dot', !!j.key_set);
-  setDot('chk-vpype-dot', !!j.vpype);
+  // No vpype row: the Pi deliberately has no local vpype (compute is offloaded to the
+  // PC compute-host), so a permanent red "failure" there was misleading noise.
   setDot('chk-serial-dot', !!j.serial_present);
   const failStreak = j.gist_publish_fail_streak || 0;
   setDot('chk-gist-dot', failStreak === 0);
@@ -1566,7 +1555,11 @@ function updateProcessBtn() {
 function evaluateReadiness() {
   const banner = $('issue-banner');
   const bootBar = $('boot-progress');
-  if (plottingActive) { banner.style.display = 'none'; bootBar.style.display = 'none'; appBlocked = false; return; }
+  const block = $('issue-block');
+  if (plottingActive) {
+    banner.style.display = 'none'; bootBar.style.display = 'none'; block.style.display = 'none';
+    appBlocked = false; return;
+  }
   let issue = null, info = false, unlock = false, showBoot = false, bootPct = 0;
   if (lastStudioOk === null || plotterState === 'unknown') { issue = 'Checking connection…'; info = true; }
   else if (studioReachable === false) {
@@ -1604,6 +1597,10 @@ function evaluateReadiness() {
   }
   if (showBoot) { bootBar.style.display = ''; $('boot-progress-fill').style.width = bootPct + '%'; }
   else bootBar.style.display = 'none';
+  // The wrapper itself must hide too: .col is a flex column with gap, and a visible
+  // 0-height div still consumes a gap slot -- leaving a phantom 24px of whitespace
+  // at the top of the app whenever everything is healthy (found in review).
+  block.style.display = (issue || showBoot) ? '' : 'none';
   $('result-send').disabled = appBlocked;
   updateProcessBtn();
 }
