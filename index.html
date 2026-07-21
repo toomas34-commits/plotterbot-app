@@ -2016,22 +2016,43 @@ function repairBadArcs(gtext) {
   return { gcode: lines.join('\n'), repaired };
 }
 
-function computeGcodeStats(gtext) {
+// Mirrors proxy.py's _gcode_stats for G-code the BROWSER built or loaded (poem mode's
+// handwriting output, and files picked via "Pick a G-code file to draw") -- the photo/text
+// path gets its stats from the studio instead.
+//
+// Draw time follows the MODAL F WORD actually present in the G-code rather than a fixed
+// 3000 (July 2026 fix): poem mode builds its G-code with the user's Draw speed setting
+// (see buildPoemGcode) and a picked file carries whatever feeds its author baked in, so a
+// hardcoded 3000 mis-estimated both. That matters beyond the displayed number -- on the
+// network transport this estimate IS the completion timer (proxy.py's _sd_plot_job is
+// fire-and-forget and never asks the plotter), so at half the assumed speed the ring
+// reported "finished" at roughly half the real draw time.
+//
+// G0 travel deliberately does NOT follow F: on real GRBL/FluidNC a G0 is a true rapid that
+// ignores the F word entirely (see proxy.py's _apply_speeds), so it's estimated at the
+// machine's rapid rate. G1 travel (what _apply_speeds emits) does follow F, correctly.
+function computeGcodeStats(gtext, drawSpeed, moveSpeed) {
+  const dFallback = (isFinite(drawSpeed) && drawSpeed > 0) ? drawSpeed : DEFAULT_DRAW_SPEED;
+  const rapid = (isFinite(moveSpeed) && moveSpeed > 0) ? moveSpeed : DEFAULT_MOVE_SPEED;
   let cx = 0, cy = 0, pen = false, draw = 0, trav = 0, lifts = 0;
+  let feed = null, minutes = 0;
   gtext.split('\n').forEach(raw => {
     const line = raw.split(';')[0].trim();
     if (!line) return;
     const norm = line.split(/\s+/).join(' ');
     if (norm === 'M3 S1000') { if (!pen) lifts++; pen = true; return; }
     if (norm === 'M3 S0') { pen = false; return; }
+    const fm = line.match(/(?:^|\s)F(-?[\d.]+)/i);      // modal feed, standalone or inline
+    if (fm) { const v = parseFloat(fm[1]); if (isFinite(v) && v > 0) feed = v; }
     const m = line.match(/^G([01])\s+X(-?[\d.]+)\s+Y(-?[\d.]+)/i);
     if (!m) return;
     const x = parseFloat(m[2]), y = parseFloat(m[3]);
     const d = Math.hypot(x - cx, y - cy);
-    if (m[1] === '0') trav += d; else draw += d;
+    if (m[1] === '0') { trav += d; minutes += d / rapid; }
+    else { draw += d; minutes += d / (feed || dFallback); }
     cx = x; cy = y;
   });
-  const est = draw / 3000 + trav / 5000 + lifts * 2 * 0.30 / 60;
+  const est = minutes + lifts * 2 * 0.30 / 60;
   return {
     draw_m: Math.round(draw / 1000 * 100) / 100,
     travel_m: Math.round(trav / 1000 * 100) / 100,
@@ -2170,7 +2191,11 @@ async function buildPoemGcode(title, lines, onProgress) {
   let gtext = built.gcode
     .replace('G10 L20 P1 X0 Y0\n', '')
     .replace(/M3 S0\nG0 X0\.000 Y0\.000\n$/, HIGH_LIFT_CMD + '\nG53 G0 X0 Y' + MACHINE_Y_MAX.toFixed(3) + '\nM3 S1000\n');
-  return { gcode: gtext, stats: computeGcodeStats(gtext) };
+  // Pass the same speeds the G-code was built with -- buildGcode does emit an F header
+  // that computeGcodeStats would pick up modally anyway, but being explicit keeps the
+  // estimate correct even if the shared handwriting engine's header ever changes.
+  const sp = getSpeedSettings();
+  return { gcode: gtext, stats: computeGcodeStats(gtext, sp.draw_speed, sp.move_speed) };
 }
 
 // Shared network-error message for both the initial POST and every progress poll —
