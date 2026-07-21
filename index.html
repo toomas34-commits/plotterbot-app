@@ -1401,6 +1401,17 @@ const PLOT_DONE_MSG = 'Drawing should be finished — collect it once the pen ha
 // constants of the same name -- keep both in sync if the axis is ever re-measured.
 const HIGH_LIFT_CMD = 'M3 S2000';
 const MACHINE_Y_MAX = 180.0;
+// The drawing origin's machine-coordinate position (fixed relative to the home
+// switches -- see config.py's calibration comment). G10 L2 sets the G54 offset to
+// these exact values regardless of where the carriage currently is (unlike G10 L20,
+// which uses the CURRENT position) -- so re-sending this after every $H is always
+// safe and always restores the correct origin, even if something else (e.g. the
+// Settings "Set X0/Y0" override button) clobbered it in between jobs. This is what
+// makes the calibration self-healing with no user action or understanding needed.
+const ORIGIN_X = 21, ORIGIN_Y = 0;
+async function restoreCalibratedOrigin() {
+  await plotterCmd('G10 L2 P1 X' + ORIGIN_X + ' Y' + ORIGIN_Y);
+}
 // Self-calibrating estimate (Phase 3a): we never contact the plotter WHILE it draws, so we
 // can't measure real draw time directly. But the background poll (checkPlotter) resumes
 // automatically the instant plottingActive goes false — right after we've shown
@@ -1719,8 +1730,9 @@ $('issue-unlock').addEventListener('click', async () => {
   $('issue-unlock').disabled = true;
   $('issue-text').textContent = 'Homing…';
   // No follow-up M3 S0 needed -- config.yaml's after_homing macro already raises the
-  // pen to the high idle lift (M3 S2000) once $H completes.
-  try { await plotterCmd('$H'); } catch (e) {}
+  // pen to the high idle lift (M3 S2000) once $H completes. Re-assert the calibrated
+  // origin right after, in case it was ever clobbered (see restoreCalibratedOrigin).
+  try { await plotterCmd('$H'); await restoreCalibratedOrigin(); } catch (e) {}
   $('issue-unlock').disabled = false;
   await checkPlotter();
 });
@@ -2392,6 +2404,8 @@ async function prepBedForLoading() {
       // Re-homing on every gate-open is the only way to catch that.
       setStatus('Homing…');
       await plotterCmd('$H');
+      if (myGen !== gatePrepGen) return;
+      await restoreCalibratedOrigin();
     } else {
       // Busy/offline -- surface it, but don't block reading the gate; #start-btn's own
       // click handler re-checks status before actually sending the job.
@@ -2735,6 +2749,9 @@ $('ctrl-pause').addEventListener('click', async () => {
   refreshSettingsPlotter();
 });
 
+// Maintenance override -- sets the origin to wherever the pen CURRENTLY is. Safe to
+// leave reachable: even a mistaken press here only lasts until the next $H, since
+// restoreCalibratedOrigin() re-asserts the real X21/Y0 calibration on every homing.
 $('ctrl-zero').addEventListener('click', async () => {
   try {
     await plotterCmd('G10 L20 P1 X0 Y0');
