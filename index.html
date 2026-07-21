@@ -212,8 +212,6 @@
   /* Cosmetic-only estimate of the Pi's own boot progress (the Pi can't report anything
      until it's actually up, so this is a timer against STUDIO_BOOT_GRACE_MS, not a
      measurement) -- shown directly under the issue banner while "still booting". */
-  .boot-progress { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; margin-top: 8px; }
-  .boot-progress-fill { height: 100%; width: 0%; background: var(--brass); border-radius: 2px; transition: width 1s linear; }
 
   .wifi-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
   .wifi-bars .bar { width: 4px; background: var(--rule); border-radius: 1px; }
@@ -263,9 +261,6 @@
       </svg>
       <span id="issue-text">Checking connection…</span>
       <button class="btn btn-ghost" id="issue-unlock" style="display:none;">Home</button>
-    </div>
-    <div class="boot-progress" id="boot-progress" style="display:none;">
-      <div class="boot-progress-fill" id="boot-progress-fill"></div>
     </div>
   </div>
   <div id="mode-screen">
@@ -405,7 +400,6 @@
       </g>
     </svg>
     <button class="btn btn-send" id="result-send" style="display:none;">Send to plotter</button>
-    <button class="btn btn-ghost" id="result-download" style="display:none;">Download G-code</button>
     <button class="btn btn-ghost" id="result-cancel" style="display:none;">Cancel</button>
     <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
     <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
@@ -1568,17 +1562,12 @@ function showResultScreen() {
   $('plot-done').style.display = 'none';
   $('result-send').style.display = '';
   $('result-send').disabled = appBlocked;
-  // Pure client-side, so it works regardless of appBlocked/studio/plotter state --
-  // e.g. carrying the G-code elsewhere to plot later via "Pick a G-code file to draw"
-  // in direct mode (joining the plotter's own WiFi directly, no studio/internet needed).
-  $('result-download').style.display = gcodeText ? '' : 'none';
   $('result-cancel').style.display = '';
 }
 function resetResultScreen() {
   $('plot-ring').style.display = '';
   $('plot-status').style.display = '';
   $('result-send').style.display = 'none';
-  $('result-download').style.display = 'none';
   $('result-cancel').style.display = 'none';
 }
 
@@ -1676,13 +1665,12 @@ function updateProcessBtn() {
 // can't be started while there's a problem.
 function evaluateReadiness() {
   const banner = $('issue-banner');
-  const bootBar = $('boot-progress');
   const block = $('issue-block');
   if (plottingActive) {
-    banner.style.display = 'none'; bootBar.style.display = 'none'; block.style.display = 'none';
+    banner.style.display = 'none'; block.style.display = 'none';
     appBlocked = false; return;
   }
-  let issue = null, info = false, unlock = false, showBoot = false, bootPct = 0;
+  let issue = null, info = false, unlock = false;
   if (lastStudioOk === null || plotterState === 'unknown') { issue = 'Checking connection…'; info = true; }
   else if (studioReachable === false) {
     // The Pi bridge is powered FROM the plotter (see Settings > Pi bridge power / CLAUDE.md
@@ -1695,9 +1683,6 @@ function evaluateReadiness() {
       ? 'Waiting for the Pi bridge to start up…'
       : 'Can’t reach the Pi bridge. Check it’s powered on and connected.';
     info = stillBooting;
-    // Cosmetic only -- the Pi can't report real boot progress before it's reachable, so
-    // this is a timer against STUDIO_BOOT_GRACE_MS, not a measurement (see CSS comment).
-    if (stillBooting) { showBoot = true; bootPct = Math.min(100, 100 * elapsed / STUDIO_BOOT_GRACE_MS); }
   }
   else if (lastStudioOk === false) issue = 'Pi bridge is reachable but not fully set up (no API key) — check its .env.';
   else if (plotterState === 'offline') issue = 'Can’t reach the plotter. Check it’s powered on.';
@@ -1722,12 +1707,10 @@ function evaluateReadiness() {
   } else {
     banner.style.display = 'none';
   }
-  if (showBoot) { bootBar.style.display = ''; $('boot-progress-fill').style.width = bootPct + '%'; }
-  else bootBar.style.display = 'none';
   // The wrapper itself must hide too: .col is a flex column with gap, and a visible
   // 0-height div still consumes a gap slot -- leaving a phantom 24px of whitespace
   // at the top of the app whenever everything is healthy (found in review).
-  block.style.display = (issue || showBoot) ? '' : 'none';
+  block.style.display = issue ? '' : 'none';
   $('result-send').disabled = appBlocked;
   updateProcessBtn();
 }
@@ -2366,17 +2349,6 @@ $('result-send').addEventListener('click', () => {
   closeModal('plot-overlay');
   resetResultScreen();
   openGate();
-});
-$('result-download').addEventListener('click', () => {
-  if (!gcodeText) { alert('Make a drawing first.'); return; }
-  // Take this drawing elsewhere -- e.g. to plot later with no studio/internet at all,
-  // via "Pick a G-code file to draw" in direct mode (join the plotter's own WiFi).
-  const blob = new Blob([gcodeText], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = sdFileName();
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
 });
 $('result-cancel').addEventListener('click', () => {
   closeModal('plot-overlay');
