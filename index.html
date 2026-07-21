@@ -164,6 +164,8 @@
   .err-text { color: var(--red); }
   .row2 { display: flex; gap: 10px; }
   .row2 .btn { width: auto; flex: 1; }
+  .row3 { display: flex; gap: 10px; }
+  .row3 .btn { width: auto; flex: 1; }
 
   .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
   #wifi-mode-label { font-size: 12px; color: var(--ink2); flex: 1; line-height: 1.4; }
@@ -260,7 +262,7 @@
         <circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>
       </svg>
       <span id="issue-text">Checking connection…</span>
-      <button class="btn btn-ghost" id="issue-unlock" style="display:none;">Unlock</button>
+      <button class="btn btn-ghost" id="issue-unlock" style="display:none;">Home</button>
     </div>
     <div class="boot-progress" id="boot-progress" style="display:none;">
       <div class="boot-progress-fill" id="boot-progress-fill"></div>
@@ -350,7 +352,60 @@
     </div>
     <div id="plot-status">Sending to plotter…</div>
     <div id="gen-warn" style="display:none;">⚠ Keep this page open — preparing your poem. Don't close the phone or browser.</div>
+    <svg class="gate-anim" id="plot-done-anim" viewBox="0 0 460 285" xmlns="http://www.w3.org/2000/svg" role="img" style="display:none;">
+      <title>Lift the frame off, then slide the paper out</title>
+      <desc>The hold-down frame lifts up and away, then the paper slides out, leaving the bed empty and ready for the next sheet.</desc>
+      <rect x="127" y="37" width="206" height="206" rx="4" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+      <path d="M 127 227 V 243 H 143" fill="none" stroke="var(--brass)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
+      <!-- paper: holds in place while the frame lifts, then slides out -->
+      <g>
+        <animateTransform attributeName="transform" type="translate"
+          values="0,0; 0,0; 86,-96" keyTimes="0; 0.5; 1"
+          dur="5s" fill="freeze" calcMode="spline"
+          keySplines="0 0 1 1; 0.4 0 0.2 1"/>
+        <g>
+          <animateTransform attributeName="transform" type="rotate"
+            values="0 230 140; 0 230 140; -12 230 140" keyTimes="0; 0.5; 1"
+            dur="5s" fill="freeze" calcMode="spline"
+            keySplines="0 0 1 1; 0.4 0 0.2 1"/>
+          <rect x="130" y="40" width="200" height="200" rx="2" fill="#FFFFFF" stroke="var(--rule)" stroke-width="1.5"/>
+          <path d="M 310 40 L 330 40 L 330 60 Z" fill="var(--panel)" stroke="var(--rule)" stroke-width="1"/>
+        </g>
+      </g>
+      <text x="146" y="262" font-size="12" fill="var(--brass-d)" font-weight="500">X0 Y0</text>
+      <!-- frame: lifts off first -->
+      <g>
+        <animateTransform attributeName="transform" type="translate"
+          values="0,0; 18,-124; 18,-124" keyTimes="0; 0.5; 1"
+          dur="5s" fill="freeze" calcMode="spline"
+          keySplines="0.4 0 0.2 1; 0 0 1 1"/>
+        <g>
+          <animateTransform attributeName="transform" type="rotate"
+            values="0 230 140; 8 230 140; 8 230 140" keyTimes="0; 0.5; 1"
+            dur="5s" fill="freeze" calcMode="spline"
+            keySplines="0.4 0 0.2 1; 0 0 1 1"/>
+          <path d="M 127 37 H 333 V 243 H 127 Z M 140 50 H 320 V 230 H 140 Z"
+            fill-rule="evenodd" fill="var(--ink)" stroke="var(--rule)" stroke-width="1"/>
+          <rect x="122" y="32" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+          <rect x="328" y="32" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+          <rect x="122" y="238" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+          <rect x="328" y="238" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+        </g>
+      </g>
+      <rect x="116" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+      <rect x="334" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+      <text x="106" y="145" font-size="12" fill="var(--ink3)" text-anchor="middle" transform="rotate(-90 106 145)">Y axis</text>
+      <rect x="116" y="36" width="228" height="8" rx="2" fill="var(--ink2)"/>
+      <text x="298" y="30" font-size="12" fill="var(--ink3)">X axis</text>
+      <g>
+        <rect x="301" y="28" width="18" height="22" rx="3" fill="var(--ink)"/>
+        <rect x="305" y="14" width="10" height="30" rx="2" fill="var(--ink2)"/>
+        <rect x="304" y="38" width="12" height="6" fill="var(--brass)"/>
+        <polygon points="310,56 304,44 316,44" fill="var(--ink)"/>
+      </g>
+    </svg>
     <button class="btn btn-send" id="result-send" style="display:none;">Send to plotter</button>
+    <button class="btn btn-ghost" id="result-download" style="display:none;">Download G-code</button>
     <button class="btn btn-ghost" id="result-cancel" style="display:none;">Cancel</button>
     <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
     <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
@@ -416,7 +471,14 @@
         <button class="btn btn-ghost" id="ctrl-restart">Restart</button>
       </div>
       <button class="btn btn-ghost" id="ctrl-clear-alarm" style="margin-top:10px;width:100%;">Clear alarm</button>
-      <div class="note" style="margin-top:10px;">Plotter commands go through the studio (your PC). Stop/pause work while drawing.</div>
+      <div class="note" style="margin-top:10px;">Plotter commands go through the studio (your PC). Stop/pause work while drawing. "Set X0 Y0" overrides the calibrated work origin at the pen's current position — normally not needed, since homing plus the calibrated origin now set it automatically.</div>
+      <div class="sub-label" style="margin-top:16px;margin-bottom:10px;">Pen height test</div>
+      <div class="row3">
+        <button class="btn btn-ghost" id="pen-test-idle">Idle (high)</button>
+        <button class="btn btn-ghost" id="pen-test-up">Up</button>
+        <button class="btn btn-ghost" id="pen-test-down">Down</button>
+      </div>
+      <div class="note" style="margin-top:10px;">Sends the pen straight to that height so you can check clearance by eye — not part of a drawing. "Idle" is the +100µs high lift used between jobs; "Up"/"Down" are the normal drawing heights.</div>
     </div>
 
     <div>
@@ -450,6 +512,7 @@
 
 <div class="modal" id="gate-modal">
   <div class="sheet">
+    <div class="note" id="gate-prep-status" style="margin-bottom:10px;"></div>
     <div id="gate-step-1">
       <div class="gate-stat" id="gate-est">Estimated drawing time: <strong>—</strong></div>
       <div class="row2">
@@ -459,44 +522,89 @@
     </div>
     <div id="gate-step-2" style="display:none;">
       <svg class="gate-anim" viewBox="0 0 460 285" xmlns="http://www.w3.org/2000/svg" role="img">
-        <title>Slide the pen by hand to the bottom-left corner along the X and Y axes</title>
-        <desc>The pen plotter gantry: a horizontal X-axis beam slides along two vertical Y-axis rails, carrying the pen to the bottom-left corner of the paper, where it taps into place at the X0 Y0 origin.</desc>
-        <rect x="130" y="40" width="200" height="200" rx="3" fill="#FFFFFF" stroke="var(--rule)" stroke-width="1.5"/>
-        <rect x="116" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
-        <rect x="334" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
-        <text x="106" y="145" font-size="12" fill="var(--ink3)" text-anchor="middle" transform="rotate(-90 106 145)">Y axis</text>
+        <title>Lay the paper on the bed, then lower the frame to pin it in place</title>
+        <desc>A sheet of paper is carried in at an angle and set down flat on the plotter's bed, corner on the home mark; once it settles, a black hold-down frame lowers from above and seats onto the bed's corner clips, pinning the paper flat.</desc>
+        <rect x="127" y="37" width="206" height="206" rx="4" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+        <path d="M 127 227 V 243 H 143" fill="none" stroke="var(--brass)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
+        <!-- paper: flies in and lands, holds through the frame's arrival, flies out for the loop -->
+        <g>
+          <animateTransform attributeName="transform" type="translate"
+            values="86,-96; 0,0; 0,0; 86,-96"
+            keyTimes="0; 0.22; 0.90; 1"
+            dur="9s" repeatCount="indefinite" calcMode="spline"
+            keySplines="0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1"/>
+          <g>
+            <animateTransform attributeName="transform" type="rotate"
+              values="-12 230 140; 0 230 140; 0 230 140; -12 230 140"
+              keyTimes="0; 0.22; 0.90; 1"
+              dur="9s" repeatCount="indefinite" calcMode="spline"
+              keySplines="0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1"/>
+            <rect x="130" y="40" width="200" height="200" rx="2" fill="#FFFFFF" stroke="var(--rule)" stroke-width="1.5"/>
+            <path d="M 310 40 L 330 40 L 330 60 Z" fill="var(--panel)" stroke="var(--rule)" stroke-width="1"/>
+          </g>
+        </g>
+        <!-- home-corner pulse: fires once, right after the paper lands -->
         <g>
           <circle cx="130" cy="240" r="6" fill="none" stroke="var(--brass)" stroke-width="2">
-            <animate attributeName="r" values="6;6;18;6;6" keyTimes="0;0.42;0.56;0.7;1" dur="4.5s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.42;0.6;0.7;1" dur="4.5s" repeatCount="indefinite"/>
+            <animate attributeName="r" values="6;6;18;6;6" keyTimes="0;0.22;0.26;0.30;1" dur="9s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.22;0.25;0.30;1" dur="9s" repeatCount="indefinite"/>
           </circle>
           <circle cx="130" cy="240" r="3" fill="var(--brass)"/>
         </g>
         <text x="146" y="262" font-size="12" fill="var(--brass-d)" font-weight="500">X0 Y0</text>
+        <!-- frame: waits, then lowers over the settled paper, holds, flies out for the loop -->
         <g>
-          <rect x="116" y="36" width="228" height="8" rx="2" fill="var(--ink2)"/>
-          <text x="298" y="30" font-size="12" fill="var(--ink3)">X axis</text>
-          <g>
-            <rect x="121" y="28" width="18" height="22" rx="3" fill="var(--ink)"/>
-            <rect x="125" y="14" width="10" height="30" rx="2" fill="var(--ink2)"/>
-            <rect x="124" y="38" width="12" height="6" fill="var(--brass)"/>
-            <polygon points="130,56 124,44 136,44" fill="var(--ink)"/>
-            <animateTransform attributeName="transform" type="translate"
-              values="120,0; 0,0; 0,0; 0,0; 120,0"
-              keyTimes="0; 0.42; 0.6; 0.74; 1"
-              dur="4.5s" repeatCount="indefinite"
-              calcMode="spline"
-              keySplines="0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1; 0.4 0 0.2 1"/>
-          </g>
           <animateTransform attributeName="transform" type="translate"
-            values="0,20; 0,184; 0,184; 0,170; 0,20"
-            keyTimes="0; 0.42; 0.6; 0.74; 1"
-            dur="4.5s" repeatCount="indefinite"
-            calcMode="spline"
-            keySplines="0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1; 0.4 0 0.2 1"/>
+            values="18,-124; 18,-124; 0,0; 0,0; 18,-124"
+            keyTimes="0; 0.34; 0.56; 0.90; 1"
+            dur="9s" repeatCount="indefinite" calcMode="spline"
+            keySplines="0 0 1 1; 0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1"/>
+          <g>
+            <animateTransform attributeName="transform" type="rotate"
+              values="8 230 140; 8 230 140; 0 230 140; 0 230 140; 8 230 140"
+              keyTimes="0; 0.34; 0.56; 0.90; 1"
+              dur="9s" repeatCount="indefinite" calcMode="spline"
+              keySplines="0 0 1 1; 0.4 0 0.2 1; 0 0 1 1; 0.4 0 0.2 1"/>
+            <path d="M 127 37 H 333 V 243 H 127 Z M 140 50 H 320 V 230 H 140 Z"
+              fill-rule="evenodd" fill="var(--ink)" stroke="var(--rule)" stroke-width="1"/>
+            <rect x="122" y="32" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+            <rect x="328" y="32" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+            <rect x="122" y="238" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+            <rect x="328" y="238" width="10" height="10" rx="2" fill="var(--panel)" stroke="var(--ink3)" stroke-width="1"/>
+          </g>
+        </g>
+        <!-- corner-seated pulses: fire once, right after the frame lands -->
+        <g>
+          <circle cx="127" cy="37" r="4" fill="none" stroke="var(--brass)" stroke-width="2">
+            <animate attributeName="r" values="4;4;12;4;4" keyTimes="0;0.56;0.60;0.64;1" dur="9s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.56;0.59;0.64;1" dur="9s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="333" cy="37" r="4" fill="none" stroke="var(--brass)" stroke-width="2">
+            <animate attributeName="r" values="4;4;12;4;4" keyTimes="0;0.56;0.60;0.64;1" dur="9s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.56;0.59;0.64;1" dur="9s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="127" cy="243" r="4" fill="none" stroke="var(--brass)" stroke-width="2">
+            <animate attributeName="r" values="4;4;12;4;4" keyTimes="0;0.56;0.60;0.64;1" dur="9s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.56;0.59;0.64;1" dur="9s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="333" cy="243" r="4" fill="none" stroke="var(--brass)" stroke-width="2">
+            <animate attributeName="r" values="4;4;12;4;4" keyTimes="0;0.56;0.60;0.64;1" dur="9s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="1;1;0;1;1" keyTimes="0;0.56;0.59;0.64;1" dur="9s" repeatCount="indefinite"/>
+          </circle>
+        </g>
+        <rect x="116" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+        <rect x="334" y="34" width="10" height="212" rx="3" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
+        <text x="106" y="145" font-size="12" fill="var(--ink3)" text-anchor="middle" transform="rotate(-90 106 145)">Y axis</text>
+        <rect x="116" y="36" width="228" height="8" rx="2" fill="var(--ink2)"/>
+        <text x="298" y="30" font-size="12" fill="var(--ink3)">X axis</text>
+        <g>
+          <rect x="301" y="28" width="18" height="22" rx="3" fill="var(--ink)"/>
+          <rect x="305" y="14" width="10" height="30" rx="2" fill="var(--ink2)"/>
+          <rect x="304" y="38" width="12" height="6" fill="var(--brass)"/>
+          <polygon points="310,56 304,44 316,44" fill="var(--ink)"/>
         </g>
       </svg>
-      <p class="gate-instruction">Move the pen by hand to the bottom-left corner of the paper. When it's in place, tap Start.</p>
+      <p class="gate-instruction">Lay the paper flat on the bed, corner on the home mark. Lower the frame over it and press each corner down onto the clips. Then tap Start.</p>
       <div class="note err-text" id="gate-err"></div>
       <div class="row2">
         <button class="btn btn-ghost" id="gate-back-2">Back</button>
@@ -921,8 +1029,13 @@ async function fetchPlotterStatus(allowDuringPlot) {
   return 'offline';
 }
 
+const HOMING_TIMEOUT_MS = 60000;   // $H blocks until the full homing cycle finishes
+                                    // (both axes) -- far longer than a normal command
+                                    // reply; keep in sync with config.HOMING_TIMEOUT_S.
+
 async function plotterCmd(cmd) {
-  if (PL.mode) { await plSendLine(cmd, 15000); return 'ok'; }
+  const isHoming = cmd.trim().toUpperCase().startsWith('$H');
+  if (PL.mode) { await plSendLine(cmd, isHoming ? HOMING_TIMEOUT_MS : 15000); return 'ok'; }
   const r = await fetch(tokUrl(studioBase() + '/plotter_command'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1290,6 +1403,10 @@ let gcodeStats = null;
 // not a report from the plotter.
 const DRAW_EST_BIAS = 1.2;
 const PLOT_DONE_MSG = 'Drawing should be finished — collect it once the pen has stopped.';
+// July 2026: end-stop switches + homing. HIGH_LIFT_CMD/MACHINE_Y_MAX mirror config.py's
+// constants of the same name -- keep both in sync if the axis is ever re-measured.
+const HIGH_LIFT_CMD = 'M3 S2000';
+const MACHINE_Y_MAX = 180.0;
 // Self-calibrating estimate (Phase 3a): we never contact the plotter WHILE it draws, so we
 // can't measure real draw time directly. But the background poll (checkPlotter) resumes
 // automatically the instant plottingActive goes false — right after we've shown
@@ -1451,12 +1568,17 @@ function showResultScreen() {
   $('plot-done').style.display = 'none';
   $('result-send').style.display = '';
   $('result-send').disabled = appBlocked;
+  // Pure client-side, so it works regardless of appBlocked/studio/plotter state --
+  // e.g. carrying the G-code elsewhere to plot later via "Pick a G-code file to draw"
+  // in direct mode (joining the plotter's own WiFi directly, no studio/internet needed).
+  $('result-download').style.display = gcodeText ? '' : 'none';
   $('result-cancel').style.display = '';
 }
 function resetResultScreen() {
   $('plot-ring').style.display = '';
   $('plot-status').style.display = '';
   $('result-send').style.display = 'none';
+  $('result-download').style.display = 'none';
   $('result-cancel').style.display = 'none';
 }
 
@@ -1579,7 +1701,12 @@ function evaluateReadiness() {
   }
   else if (lastStudioOk === false) issue = 'Pi bridge is reachable but not fully set up (no API key) — check its .env.';
   else if (plotterState === 'offline') issue = 'Can’t reach the plotter. Check it’s powered on.';
-  else if (plotterState === 'Alarm') { issue = 'Plotter is locked.'; unlock = true; }
+  else if (plotterState === 'Alarm') {
+    // Alarm at boot is routine now (must_home:true in config.yaml) -- not a fault to
+    // clear with $X, but the machine waiting to be homed. `unlock` is kept as the
+    // internal flag name (drives the same banner button slot) but now triggers $H.
+    issue = 'Plotter needs homing.'; unlock = true;
+  }
   else if (BUSY_PLOTTER_STATES.has(plotterState)) {
     issue = (externalPlotPct != null)
       ? ('Plotter is currently in use (~' + Math.round(externalPlotPct) + '% done).')
@@ -1607,9 +1734,10 @@ function evaluateReadiness() {
 
 $('issue-unlock').addEventListener('click', async () => {
   $('issue-unlock').disabled = true;
-  $('issue-text').textContent = 'Unlocking…';
-  try { await plotterCmd('$X'); await plotterCmd('M3 S0'); } catch (e) {}
-  await sleep(300);
+  $('issue-text').textContent = 'Homing…';
+  // No follow-up M3 S0 needed -- config.yaml's after_homing macro already raises the
+  // pen to the high idle lift (M3 S2000) once $H completes.
+  try { await plotterCmd('$H'); } catch (e) {}
   $('issue-unlock').disabled = false;
   await checkPlotter();
 });
@@ -2036,7 +2164,18 @@ async function buildPoemGcode(title, lines, onProgress) {
   // GRBL/FluidNC hardware (a true rapid), and those hops are short enough that making them
   // separately configurable isn't worth touching the shared handwriting-demo engine for.
   const built = GCODE.buildGcode(joined, { bed: BED_MM, feed: getSpeedSettings().draw_speed });
-  return { gcode: built.gcode, stats: computeGcodeStats(built.gcode) };
+  // handwriting-demo/gcode.js is a shared, standalone engine (not touched for this
+  // project's July 2026 homing change) -- it still emits its own G10 L20 origin re-zero
+  // and an old-style M3 S0/G0 X0 Y0 ending. Poem mode now goes through the same gate +
+  // /plot flow as photo/text mode, where the bed sits driven out (prepBedForLoading) when
+  // the job starts, so that G10 L20 would silently re-zero the calibrated work origin at
+  // the wrong position. Fix it here at the call site (not in the shared file): strip the
+  // re-zero line, and swap the old ending for the same high-lift + bed-out footer the
+  // vpype pipeline uses (fluidnc.toml's document_end / proxy.py's _reorder_join_gcode).
+  let gtext = built.gcode
+    .replace('G10 L20 P1 X0 Y0\n', '')
+    .replace(/M3 S0\nG0 X0\.000 Y0\.000\n$/, HIGH_LIFT_CMD + '\nG53 G0 Y' + MACHINE_Y_MAX.toFixed(3) + '\n');
+  return { gcode: gtext, stats: computeGcodeStats(gtext) };
 }
 
 // Shared network-error message for both the initial POST and every progress poll —
@@ -2228,6 +2367,17 @@ $('result-send').addEventListener('click', () => {
   resetResultScreen();
   openGate();
 });
+$('result-download').addEventListener('click', () => {
+  if (!gcodeText) { alert('Make a drawing first.'); return; }
+  // Take this drawing elsewhere -- e.g. to plot later with no studio/internet at all,
+  // via "Pick a G-code file to draw" in direct mode (join the plotter's own WiFi).
+  const blob = new Blob([gcodeText], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = sdFileName();
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+});
 $('result-cancel').addEventListener('click', () => {
   closeModal('plot-overlay');
   resetResultScreen();
@@ -2243,9 +2393,54 @@ function showGateStep(n) {
   $('gate-step-2').style.gap = '20px';
 }
 
+// July 2026: with end-stop switches + homing, the gate no longer asks the user to hand-
+// place the pen -- instead, the moment the gate opens (step 1, while they're still
+// reading the time estimate) we home if needed, raise the pen to the high idle lift, and
+// drive the bed out (Y to max) so it's ready by the time they reach step 2's paper/frame
+// instructions. gatePrepGen guards against a stale run's status updates leaking through
+// if the gate is closed and reopened while a previous prep sequence is still in flight
+// (e.g. mid-$H, which can't be meaningfully cancelled once the axes are moving).
+let gatePrepGen = 0;
+async function prepBedForLoading() {
+  const myGen = ++gatePrepGen;
+  const setStatus = (text, isErr) => {
+    if (myGen !== gatePrepGen) return;
+    $('gate-prep-status').textContent = text;
+    $('gate-prep-status').classList.toggle('err-text', !!isErr);
+  };
+  $('start-btn').disabled = true;
+  try {
+    setStatus('Checking plotter…');
+    const st = await fetchPlotterStatus();
+    if (myGen !== gatePrepGen) return;
+    if (st === 'Alarm') {
+      setStatus('Homing…');
+      await plotterCmd('$H');
+    } else if (st !== 'Idle') {
+      // Busy/offline -- surface it, but don't block reading the gate; #start-btn's own
+      // click handler re-checks status before actually sending the job.
+      setStatus('Plotter is ' + st + ' — Start will re-check before sending.', true);
+      return;
+    }
+    if (myGen !== gatePrepGen) return;
+    setStatus('Raising pen…');
+    await plotterCmd(HIGH_LIFT_CMD);
+    if (myGen !== gatePrepGen) return;
+    setStatus('Moving bed out for loading…');
+    await plotterCmd('G53 G0 Y' + MACHINE_Y_MAX.toFixed(3));
+    if (myGen !== gatePrepGen) return;
+    setStatus('Ready — load the paper and frame.');
+    $('start-btn').disabled = false;
+  } catch (e) {
+    setStatus('Could not prepare the plotter: ' + e.message, true);
+  }
+}
+
 function openGate() {
   $('gate-err').textContent = '';
-  $('start-btn').disabled = false;
+  $('gate-prep-status').textContent = '';
+  $('gate-prep-status').classList.remove('err-text');
+  $('start-btn').disabled = true;   // re-enabled by prepBedForLoading() once ready
   // Coerce stats to numbers before they reach innerHTML — neutralises any
   // injection if the studio ever returns strings here.
   const s = gcodeStats || {};
@@ -2255,6 +2450,7 @@ function openGate() {
   $('gate-est').innerHTML = estHtml;
   showGateStep(1);
   openModal('gate-modal');
+  prepBedForLoading();   // fire-and-forget; drives #gate-prep-status / #start-btn itself
 }
 
 function closeGate() {
@@ -2315,16 +2511,13 @@ $('start-btn').addEventListener('click', async () => {
   }
 
   // Relay mode: hand the G-code to the studio, which streams it over the LAN.
+  // No G10 L20 origin re-zero here anymore -- the work origin is a persistent G54
+  // offset set once during calibration (see config.py's SET_WORK_ORIGIN_AT_START),
+  // and the bed is currently driven out for loading (prepBedForLoading) -- zeroing at
+  // whatever position that left the pen at would be wrong.
   const base = studioBase();
   if (!base) {
     $('gate-err').textContent = 'Set the studio address in Settings first.';
-    $('start-btn').disabled = false;
-    return;
-  }
-  try {
-    await plotterCmd('G10 L20 P1 X0 Y0');
-  } catch (e) {
-    $('gate-err').textContent = 'Could not set origin: ' + e.message;
     $('start-btn').disabled = false;
     return;
   }
@@ -2392,7 +2585,16 @@ function finishPlotting(msg, isError) {
   // Self-calibration (see the DRAW_BIAS_KEY comment above): only a genuine time-estimate
   // "should be finished" outcome is worth checking — never Stop/cancel/upload-failure,
   // which aren't a signal about whether the estimate was long enough.
-  if (!isError && msg === PLOT_DONE_MSG) pendingDrawBiasCheck = true;
+  const genuineFinish = !isError && msg === PLOT_DONE_MSG;
+  if (genuineFinish) pendingDrawBiasCheck = true;
+  // Reverse placement animation (frame off, then paper out) -- only on a real finish,
+  // never after Stop/cancel/error (nothing was actually removed from the bed then).
+  // fill="freeze" means a prior run stays frozen at its end frame -- setCurrentTime(0)
+  // restarts the SMIL timeline explicitly each time, since toggling display alone
+  // doesn't reset it.
+  const doneAnim = $('plot-done-anim');
+  doneAnim.style.display = genuineFinish ? '' : 'none';
+  if (genuineFinish) { try { doneAnim.setCurrentTime(0); } catch (e) {} }
 }
 
 function progressStart() {
@@ -2403,6 +2605,7 @@ function progressStart() {
   $('plot-cancel').style.display = '';
   $('plot-cancel').disabled = false;
   $('plot-done').style.display = 'none';
+  $('plot-done-anim').style.display = 'none';
   ringIndet();
   openModal('plot-overlay');
   lockControls(true);
@@ -2586,6 +2789,20 @@ $('ctrl-clear-alarm').addEventListener('click', async () => {
   await new Promise(r => setTimeout(r, 400));
   refreshSettingsPlotter();
 });
+
+function penTestHandler(btnId, cmd) {
+  $(btnId).addEventListener('click', async () => {
+    try {
+      await plotterCmd(cmd);
+      flashBtn(btnId, 'Sent ✓');
+    } catch (e) {
+      flashBtn(btnId, 'Failed');
+    }
+  });
+}
+penTestHandler('pen-test-idle', HIGH_LIFT_CMD);
+penTestHandler('pen-test-up', 'M3 S0');
+penTestHandler('pen-test-down', 'M3 S1000');
 
 // Pi bridge power (see Settings > "Pi bridge power" / CLAUDE.md "Pi bridge (USB)"): the
 // Pi has no PSU of its own on this deployment, it's powered FROM the DLC32 -- so cutting
