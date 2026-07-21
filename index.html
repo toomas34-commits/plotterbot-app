@@ -2157,7 +2157,7 @@ async function buildPoemGcode(title, lines, onProgress) {
   // vpype pipeline uses (fluidnc.toml's document_end / proxy.py's _reorder_join_gcode).
   let gtext = built.gcode
     .replace('G10 L20 P1 X0 Y0\n', '')
-    .replace(/M3 S0\nG0 X0\.000 Y0\.000\n$/, HIGH_LIFT_CMD + '\nG53 G0 Y' + MACHINE_Y_MAX.toFixed(3) + '\n');
+    .replace(/M3 S0\nG0 X0\.000 Y0\.000\n$/, HIGH_LIFT_CMD + '\nG53 G0 X0 Y' + MACHINE_Y_MAX.toFixed(3) + '\nM3 S1000\n');
   return { gcode: gtext, stats: computeGcodeStats(gtext) };
 }
 
