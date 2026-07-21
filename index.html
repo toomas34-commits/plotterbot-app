@@ -2413,10 +2413,14 @@ async function prepBedForLoading() {
     setStatus('Checking plotter…');
     const st = await fetchPlotterStatus();
     if (myGen !== gatePrepGen) return;
-    if (st === 'Alarm') {
+    if (st === 'Alarm' || st === 'Idle') {
+      // Always re-home here, not just from Alarm -- motors are free while idle
+      // (stepping.idle_ms: 250, July 2026), so a hand-moved axis leaves FluidNC
+      // still believing its old position with no way to notice the difference.
+      // Re-homing on every gate-open is the only way to catch that.
       setStatus('Homing…');
       await plotterCmd('$H');
-    } else if (st !== 'Idle') {
+    } else {
       // Busy/offline -- surface it, but don't block reading the gate; #start-btn's own
       // click handler re-checks status before actually sending the job.
       setStatus('Plotter is ' + st + ' — Start will re-check before sending.', true);
