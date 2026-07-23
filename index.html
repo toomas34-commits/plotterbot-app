@@ -1350,30 +1350,51 @@ function renderBridgeDiagnostics(j) {
   }
 }
 
+async function fetchHealth(base) {
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 4000);
+    const r = await fetch(base + '/health', { cache: 'no-store', signal: c.signal });
+    clearTimeout(t);
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+// Real bug found live (July 2026): a Cloudflare quick-tunnel URL rotates on every Pi
+// bridge restart, and resolveStudio() (which re-fetches the gist to find the CURRENT
+// one) only ever runs once, at page load. If the cached address goes dead afterward
+// (a later restart, e.g. from power-cycling the plotter -- the Pi has no PSU of its
+// own, see CLAUDE.md "Pi bridge (USB)" -> Power), checkStudio()'s 8s poll used to keep
+// retrying that same dead URL forever: the app could only recover via a page reload
+// that happened to land after the gist had already caught up. Now a failed poll
+// immediately re-resolves from the gist and retries once against whatever it finds --
+// same self-healing checkStudio already does for "is the bridge up at all", extended to
+// "is our cached address even the right one anymore".
 async function checkStudio() {
-  const dot = $('proxy-dot'), msg = $('proxy-msg'), base = studioBase();
+  const dot = $('proxy-dot'), msg = $('proxy-msg');
+  let base = studioBase();
   if (!base) {
     dot.style.background = 'var(--ink3)'; msg.textContent = 'Enter your home address.';
     lastStudioOk = false; studioReachable = false; markStudioUnreachable();
     renderBridgeDiagnostics(null);
     evaluateReadiness(); return;
   }
-  try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 4000);
-    const r = await fetch(base + '/health', { cache: 'no-store', signal: c.signal });
-    clearTimeout(t);
-    const j = await r.json();
-    studioReachable = true; clearStudioUnreachable();
-    if (j.ok && j.key_set) { dot.style.background = 'var(--green)'; msg.textContent = 'Connected to ' + base; lastStudioOk = true; }
-    else if (j.ok)         { dot.style.background = 'var(--brass)'; msg.textContent = 'Reachable at ' + base + ', but no API key set.'; lastStudioOk = false; }
-    else                   { dot.style.background = 'var(--red)';   msg.textContent = 'Reachable but not ready.'; lastStudioOk = false; }
-    renderBridgeDiagnostics(j);
-  } catch (e) {
+  let j = await fetchHealth(base);
+  if (!j) {
+    const fresh = await resolveStudio();
+    if (fresh && fresh !== base) { base = fresh; j = await fetchHealth(base); }
+  }
+  if (!j) {
     dot.style.background = 'var(--red)'; msg.textContent = 'Cannot reach ' + base + '. Check the address.';
     lastStudioOk = false; studioReachable = false; markStudioUnreachable();
     renderBridgeDiagnostics(null);
+    evaluateReadiness(); return;
   }
+  studioReachable = true; clearStudioUnreachable();
+  if (j.ok && j.key_set) { dot.style.background = 'var(--green)'; msg.textContent = 'Connected to ' + base; lastStudioOk = true; }
+  else if (j.ok)         { dot.style.background = 'var(--brass)'; msg.textContent = 'Reachable at ' + base + ', but no API key set.'; lastStudioOk = false; }
+  else                   { dot.style.background = 'var(--red)';   msg.textContent = 'Reachable but not ready.'; lastStudioOk = false; }
+  renderBridgeDiagnostics(j);
   evaluateReadiness();
 }
 resolveStudio().then(() => { checkStudio(); checkPlotter(); });
