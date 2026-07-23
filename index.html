@@ -53,6 +53,11 @@
   }
   .icon-btn:hover { color: var(--ink); background: var(--panel); }
 
+  .lang-toggle { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: -4px; }
+  .lang-btn { font-size: 18px; opacity: .45; border: 1px solid transparent; }
+  .lang-btn:hover { opacity: .8; }
+  .lang-btn.active { opacity: 1; border-color: var(--rule); background: var(--panel); }
+
   .col { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 24px; }
 
   .intro {
@@ -259,52 +264,56 @@
       <svg class="b-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
         <circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>
       </svg>
-      <span id="issue-text">Checking connection…</span>
-      <button class="btn btn-ghost" id="issue-unlock" style="display:none;">Home</button>
+      <span id="issue-text" data-i18n="issueChecking">Checking connection…</span>
+      <button class="btn btn-ghost" id="issue-unlock" style="display:none;" data-i18n="issueHomeBtn">Home</button>
     </div>
   </div>
   <div id="mode-screen">
-    <p class="intro">Select a style:</p>
+    <div class="lang-toggle">
+      <button type="button" class="icon-btn lang-btn" id="lang-en" aria-label="English">🇬🇧</button>
+      <button type="button" class="icon-btn lang-btn" id="lang-et" aria-label="Eesti">🇪🇪</button>
+    </div>
+    <p class="intro" data-i18n="modeIntro">Select a style:</p>
     <div class="mode-card" id="pick-photo">
       <div class="mode-icon">⬡</div>
-      <div class="mode-title">Image Upload</div>
-      <div class="mode-desc">Convert your favorite photos into clean line art.</div>
+      <div class="mode-title" data-i18n="modePhotoTitle">Image Upload</div>
+      <div class="mode-desc" data-i18n="modePhotoDesc">Convert your favorite photos into clean line art.</div>
     </div>
     <div class="mode-card" id="pick-desc">
       <div class="mode-icon">✎</div>
-      <div class="mode-title">Imagine something new</div>
-      <div class="mode-desc">Turn a written description into a physical drawing.</div>
+      <div class="mode-title" data-i18n="modeDescTitle">Imagine something new</div>
+      <div class="mode-desc" data-i18n="modeDescDesc">Turn a written description into a physical drawing.</div>
     </div>
     <div class="mode-card" id="pick-poem">
       <div class="mode-icon">✒</div>
       <div class="mode-title">Poem about you</div>
       <div class="mode-desc">Answer a few questions — get a funny poem, hand-written on paper.</div>
     </div>
-    <p class="surprise-note">Real-world preview only.<br/>The final drawing reveals itself on the paper.</p>
+    <p class="surprise-note" data-i18n-html="modeSurpriseNote">Real-world preview only.<br/>The final drawing reveals itself on the paper.</p>
   </div>
 
   <div id="quality-screen">
-    <div class="back-link" id="back-from-quality">← Change mode</div>
-    <p class="intro">Select a quality:</p>
+    <div class="back-link" id="back-from-quality" data-i18n="qualityBackLink">← Change mode</div>
+    <p class="intro" data-i18n="qualityIntro">Select a quality:</p>
     <div class="mode-card" id="pick-quality-normal">
       <div class="mode-icon">⬡</div>
-      <div class="mode-title">Normal</div>
-      <div class="mode-desc">Simpler outlines, tuned for what a 0.3&nbsp;mm pen can actually trace at 15×15&nbsp;cm.</div>
+      <div class="mode-title" data-i18n="qualityNormalTitle">Normal</div>
+      <div class="mode-desc" data-i18n-html="qualityNormalDesc">Simpler outlines, tuned for what a 0.3&nbsp;mm pen can actually trace at 15×15&nbsp;cm.</div>
     </div>
     <div class="mode-card" id="pick-quality-high">
       <div class="mode-icon">✦</div>
-      <div class="mode-title">High</div>
-      <div class="mode-desc">Richer detail and shading — may include finer lines than the pen can cleanly reproduce.</div>
+      <div class="mode-title" data-i18n="qualityHighTitle">High</div>
+      <div class="mode-desc" data-i18n="qualityHighDesc">Richer detail and shading — may include finer lines than the pen can cleanly reproduce.</div>
     </div>
   </div>
 
   <div id="photo-screen">
-    <div class="back-link" id="back-from-photo">← Change mode</div>
+    <div class="back-link" id="back-from-photo" data-i18n="photoBackLink">← Change mode</div>
     <div id="dropzone">
       <input type="file" id="file-input" accept="image/*"/>
       <div class="dz-icon">⬡</div>
-      <div class="dz-text">Tap to choose a photo</div>
-      <div class="dz-small">or drop one here</div>
+      <div class="dz-text" data-i18n="photoDzText">Tap to choose a photo</div>
+      <div class="dz-small" data-i18n="photoDzSmall">or drop one here</div>
     </div>
     <div id="source-wrap">
       <img id="source-img" alt="selected photo"/>
@@ -313,13 +322,13 @@
   </div>
 
   <div id="desc-screen">
-    <div class="back-link" id="back-from-desc">← Change mode</div>
+    <div class="back-link" id="back-from-desc" data-i18n="descBackLink">← Change mode</div>
     <div class="field">
-      <label>Your description</label>
-      <textarea id="desc-input" maxlength="500" placeholder="A cat wearing a tiny hat, sitting on a windowsill…"></textarea>
+      <label data-i18n="descLabel">Your description</label>
+      <textarea id="desc-input" maxlength="500" data-i18n-placeholder="descPlaceholder" placeholder="A cat wearing a tiny hat, sitting on a windowsill…"></textarea>
       <div class="char-count"><span id="desc-len">0</span> / 500</div>
     </div>
-    <p class="surprise-note">You won't see the result here — watch it appear on paper.</p>
+    <p class="surprise-note" data-i18n="descSurpriseNote">You won't see the result here — watch it appear on paper.</p>
   </div>
 
   <div id="poem-screen">
@@ -345,11 +354,11 @@
       </svg>
       <div class="ring-pct" id="ring-pct"></div>
     </div>
-    <div id="plot-status">Sending to plotter…</div>
+    <div id="plot-status" data-i18n="plotSending">Sending to plotter…</div>
     <div id="gen-warn" style="display:none;">⚠ Keep this page open — preparing your poem. Don't close the phone or browser.</div>
     <svg class="gate-anim" id="plot-done-anim" viewBox="0 0 460 285" xmlns="http://www.w3.org/2000/svg" role="img" style="display:none;">
-      <title>Lift the frame off, then slide the paper out</title>
-      <desc>The hold-down frame lifts up and away, then the paper slides out, leaving the bed empty and ready for the next sheet.</desc>
+      <title data-i18n="plotDoneAnimTitle">Lift the frame off, then slide the paper out</title>
+      <desc data-i18n="plotDoneAnimDesc">The hold-down frame lifts up and away, then the paper slides out, leaving the bed empty and ready for the next sheet.</desc>
       <rect x="127" y="37" width="206" height="206" rx="4" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
       <path d="M 127 227 V 243 H 143" fill="none" stroke="var(--brass)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
       <!-- paper: holds in place while the frame lifts, then slides out -->
@@ -399,10 +408,10 @@
         <polygon points="310,56 304,44 316,44" fill="var(--ink)"/>
       </g>
     </svg>
-    <button class="btn btn-send" id="result-send" style="display:none;">Send to plotter</button>
-    <button class="btn btn-ghost" id="result-cancel" style="display:none;">Cancel</button>
-    <button class="btn btn-ghost" id="plot-cancel">Cancel</button>
-    <button class="btn btn-go" id="plot-done" style="display:none;">Close</button>
+    <button class="btn btn-send" id="result-send" style="display:none;" data-i18n="resultSendBtn">Send to plotter</button>
+    <button class="btn btn-ghost" id="result-cancel" style="display:none;" data-i18n="cancelBtn">Cancel</button>
+    <button class="btn btn-ghost" id="plot-cancel" data-i18n="cancelBtn">Cancel</button>
+    <button class="btn btn-go" id="plot-done" style="display:none;" data-i18n="plotDoneBtn">Close</button>
   </div>
 </div>
 
@@ -510,14 +519,14 @@
     <div id="gate-step-1">
       <div class="gate-stat" id="gate-est">Estimated drawing time: <strong>—</strong></div>
       <div class="row2">
-        <button class="btn btn-ghost" id="gate-back-1">Back</button>
-        <button class="btn btn-go" id="gate-continue">Continue</button>
+        <button class="btn btn-ghost" id="gate-back-1" data-i18n="gateBack">Back</button>
+        <button class="btn btn-go" id="gate-continue" data-i18n="gateContinue">Continue</button>
       </div>
     </div>
     <div id="gate-step-2" style="display:none;">
       <svg class="gate-anim" viewBox="0 0 460 285" xmlns="http://www.w3.org/2000/svg" role="img">
-        <title>Lay the paper on the bed, then lower the frame to pin it in place</title>
-        <desc>A sheet of paper is carried in at an angle and set down flat on the plotter's bed, corner on the home mark; once it settles, a black hold-down frame lowers from above and seats onto the bed's corner clips, pinning the paper flat.</desc>
+        <title data-i18n="gateStep2Title">Lay the paper on the bed, then lower the frame to pin it in place</title>
+        <desc data-i18n="gateStep2Desc">A sheet of paper is carried in at an angle and set down flat on the plotter's bed, corner on the home mark; once it settles, a black hold-down frame lowers from above and seats onto the bed's corner clips, pinning the paper flat.</desc>
         <rect x="127" y="37" width="206" height="206" rx="4" fill="var(--panel)" stroke="var(--rule)" stroke-width="1.5"/>
         <path d="M 127 227 V 243 H 143" fill="none" stroke="var(--brass)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>
         <!-- paper: flies in and lands, holds through the frame's arrival, flies out for the loop -->
@@ -598,11 +607,11 @@
           <polygon points="310,56 304,44 316,44" fill="var(--ink)"/>
         </g>
       </svg>
-      <p class="gate-instruction">Lay the paper flat on the bed, corner on the home mark. Lower the frame over it and press each corner down onto the clips. Then tap Start.</p>
+      <p class="gate-instruction" data-i18n="gateInstruction">Lay the paper flat on the bed, corner on the home mark. Lower the frame over it and press each corner down onto the clips. Then tap Start.</p>
       <div class="note err-text" id="gate-err"></div>
       <div class="row2">
-        <button class="btn btn-ghost" id="gate-back-2">Back</button>
-        <button class="btn btn-go" id="start-btn">Start</button>
+        <button class="btn btn-ghost" id="gate-back-2" data-i18n="gateBack">Back</button>
+        <button class="btn btn-go" id="start-btn" data-i18n="gateStart">Start</button>
       </div>
     </div>
   </div>
@@ -611,6 +620,196 @@
 <script>
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+// ── UI translation (English / Estonian) ─────────────────────────────────────
+// Scope: everything on the main mode-picker/quality/photo/desc screens, the
+// gate/pre-plot flow, the plot-progress overlay, and the issue banner. The
+// Settings modal and Poem mode are deliberately NEVER translated (Poem's own
+// generation + handwriting must stay English regardless -- the RNN alphabet
+// has no Estonian letters -- so a half-translated poem flow would be
+// confusing; see CLAUDE.md). The flags that switch this live only on
+// #mode-screen -- there is no persisted preference and no navigator.language
+// detection, every fresh load starts English.
+const I18N = {
+  en: {
+    issueChecking: "Checking connection…",
+    issueHomeBtn: "Home",
+    issueBridgeBooting: "Waiting for the Pi bridge to start up…",
+    issueBridgeUnreachable: "Can’t reach the Pi bridge. Check it’s powered on and connected.",
+    issueBridgeNoKey: "Pi bridge is reachable but not fully set up (no API key) — check its .env.",
+    issuePlotterOffline: "Can’t reach the plotter. Check it’s powered on.",
+    issueNeedsHoming: "Plotter needs homing.",
+    issueBusy: "Plotter is busy with another job.",
+    issueBusyPct: "Plotter is currently in use (~{pct}% done).",
+    issueHoming: "Homing…",
+    modeIntro: "Select a style:",
+    modePhotoTitle: "Image Upload",
+    modePhotoDesc: "Convert your favorite photos into clean line art.",
+    modeDescTitle: "Imagine something new",
+    modeDescDesc: "Turn a written description into a physical drawing.",
+    modeSurpriseNote: "Real-world preview only.<br/>The final drawing reveals itself on the paper.",
+    qualityBackLink: "← Change mode",
+    qualityIntro: "Select a quality:",
+    qualityNormalTitle: "Normal",
+    qualityNormalDesc: "Simpler outlines, tuned for what a 0.3&nbsp;mm pen can actually trace at 15×15&nbsp;cm.",
+    qualityHighTitle: "High",
+    qualityHighDesc: "Richer detail and shading — may include finer lines than the pen can cleanly reproduce.",
+    photoBackLink: "← Change mode",
+    photoDzText: "Tap to choose a photo",
+    photoDzSmall: "or drop one here",
+    descBackLink: "← Change mode",
+    descLabel: "Your description",
+    descPlaceholder: "A cat wearing a tiny hat, sitting on a windowsill…",
+    descSurpriseNote: "You won't see the result here — watch it appear on paper.",
+    alertChooseImage: "Please choose an image.",
+    alertPhotoReadFail: "Could not read that photo.",
+    photoSelectedFallback: "✓ Photo selected — {name}",
+    alertChoosePhoto: "Choose a photo first.",
+    alertWriteDescription: "Write a description first.",
+    alertMakeDrawingFirst: "Make a drawing first.",
+    genCreating: "Creating your drawing…",
+    createDrawing: "Create drawing",
+    gateBack: "Back",
+    gateContinue: "Continue",
+    gateStart: "Start",
+    gateInstruction: "Lay the paper flat on the bed, corner on the home mark. Lower the frame over it and press each corner down onto the clips. Then tap Start.",
+    gateStep2Title: "Lay the paper on the bed, then lower the frame to pin it in place",
+    gateStep2Desc: "A sheet of paper is carried in at an angle and set down flat on the plotter's bed, corner on the home mark; once it settles, a black hold-down frame lowers from above and seats onto the bed's corner clips, pinning the paper flat.",
+    plotDoneAnimTitle: "Lift the frame off, then slide the paper out",
+    plotDoneAnimDesc: "The hold-down frame lifts up and away, then the paper slides out, leaving the bed empty and ready for the next sheet.",
+    resultSendBtn: "Send to plotter",
+    cancelBtn: "Cancel",
+    plotDoneBtn: "Close",
+    gateCheckingPlotter: "Checking plotter…",
+    gateBusyRecheck: "Plotter is {st} — Start will re-check before sending.",
+    gateRaisingPen: "Raising pen…",
+    gateMovingBed: "Moving bed out for loading…",
+    gateReady: "Ready — load the paper and frame.",
+    gatePrepFailed: "Could not prepare the plotter: {msg}",
+    gateEstLabel: "Estimated drawing time: ",
+    gateEstUnknown: "unknown",
+    gateEstMinutes: "~{mins} min",
+    gateEstInkLifts: "{drawM} m of ink · {lifts} pen lifts",
+    gateBusyDrawing: "A drawing is already in progress. Please wait until it finishes.",
+    gateNotReady: "Plotter is not ready ({st}). Check settings if you need to stop or restart it.",
+    gateNoSdCard: "⚠ No SD card detected on the plotter. Plotting uses the SD card — check the card is inserted and the plotter was restarted after inserting it.",
+    gateSetStudioAddress: "Set the studio address in Settings first.",
+    gateSendFailed: "Could not send the drawing to the plotter ({msg}).",
+    plotSdCardProblem: "⚠ SD card problem: {msg}. Drawing not started — check the SD card.",
+    plotSending: "Sending to plotter…",
+    plotDrawing: "Drawing…",
+    plotDrawingPutDown: "Drawing… (you can put the phone down)",
+    plotLinkDropped: "Plotter drawing — phone link dropped (reconnecting…)",
+    plotDone: "Drawing should be finished — collect it once the pen has stopped.",
+    plotDoneDirect: "Done.",
+    plotStoppedAlarm: "Stopped (alarm).",
+    plotFailedPrefix: "Failed: {msg}",
+  },
+  et: {
+    issueChecking: "Kontrollin ühendust…",
+    issueHomeBtn: "Nulli",
+    issueBridgeBooting: "Ootan, et Pi sild käivituks…",
+    issueBridgeUnreachable: "Pi sillaga ei saa ühendust. Kontrolli, et see oleks sisse lülitatud ja ühendatud.",
+    issueBridgeNoKey: "Pi sillaga saab ühendust, aga see pole täielikult seadistatud (API võti puudub) — kontrolli selle .env faili.",
+    issuePlotterOffline: "Plotteriga ei saa ühendust. Kontrolli, et see oleks sisse lülitatud.",
+    issueNeedsHoming: "Plotter vajab nullimist.",
+    issueBusy: "Plotter on hõivatud teise tööga.",
+    issueBusyPct: "Plotter on hetkel kasutuses (~{pct}% valmis).",
+    issueHoming: "Nullin…",
+    modeIntro: "Vali stiil:",
+    modePhotoTitle: "Lae pilt üles",
+    modePhotoDesc: "Muuda oma lemmikfotod puhtaks joonistuseks.",
+    modeDescTitle: "Kujuta ette midagi uut",
+    modeDescDesc: "Muuda kirjutatud kirjeldus füüsiliseks joonistuseks.",
+    modeSurpriseNote: "Ainult päris-maailma eelvaade.<br/>Lõplik joonistus paljastub paberil.",
+    qualityBackLink: "← Muuda režiimi",
+    qualityIntro: "Vali kvaliteet:",
+    qualityNormalTitle: "Tavaline",
+    qualityNormalDesc: "Lihtsamad kontuurjooned, kohandatud sellele, mida 0.3&nbsp;mm pliiats suudab 15×15&nbsp;cm suuruses tegelikult joonistada.",
+    qualityHighTitle: "Kõrge",
+    qualityHighDesc: "Rohkem detaile ja varjutust — võib sisaldada peenemaid jooni, kui pliiats täpselt joonistada suudab.",
+    photoBackLink: "← Muuda režiimi",
+    photoDzText: "Puuduta foto valimiseks",
+    photoDzSmall: "või lohista see siia",
+    descBackLink: "← Muuda režiimi",
+    descLabel: "Sinu kirjeldus",
+    descPlaceholder: "Kass, kes kannab väikest kübarat ja istub aknalaual…",
+    descSurpriseNote: "Sa ei näe tulemust siin — jälgi, kuidas see paberile ilmub.",
+    alertChooseImage: "Palun vali pilt.",
+    alertPhotoReadFail: "Seda fotot ei õnnestunud lugeda.",
+    photoSelectedFallback: "✓ Foto valitud — {name}",
+    alertChoosePhoto: "Vali kõigepealt foto.",
+    alertWriteDescription: "Kirjuta kõigepealt kirjeldus.",
+    alertMakeDrawingFirst: "Tee kõigepealt joonistus.",
+    genCreating: "Loon sinu joonistust…",
+    createDrawing: "Loo joonistus",
+    gateBack: "Tagasi",
+    gateContinue: "Jätka",
+    gateStart: "Alusta",
+    gateInstruction: "Aseta paber lauale tasaselt, nurk nullmärgi peale. Lase raam paberi peale ja vajuta nurgad klambritesse. Seejärel puuduta Alusta.",
+    gateStep2Title: "Aseta paber lauale ja lase raam selle kinnitamiseks alla",
+    gateStep2Desc: "Paberileht tuuakse nurga alt sisse ja asetatakse tasaselt plotteri lauale, nurk nullmärgi peale; kui see paigale jääb, laskub ülalt must hoidraam ja asetub laua nurgaklambritesse, hoides paberit tasaselt.",
+    plotDoneAnimTitle: "Tõsta raam ära ja libista paber välja",
+    plotDoneAnimDesc: "Hoidraam tõuseb üles ja eemaldub, seejärel libiseb paber välja, jättes laua tühjaks ja valmis järgmiseks leheks.",
+    resultSendBtn: "Saada plotterisse",
+    cancelBtn: "Loobu",
+    plotDoneBtn: "Sulge",
+    gateCheckingPlotter: "Kontrollin plotterit…",
+    gateBusyRecheck: "Plotter on {st} — Alusta kontrollib enne saatmist uuesti.",
+    gateRaisingPen: "Tõstan pliiatsit…",
+    gateMovingBed: "Liigutan laua laadimiseks välja…",
+    gateReady: "Valmis — aseta paber ja raam.",
+    gatePrepFailed: "Plotterit ei õnnestunud ette valmistada: {msg}",
+    gateEstLabel: "Hinnanguline joonistusaeg: ",
+    gateEstUnknown: "teadmata",
+    gateEstMinutes: "~{mins} min",
+    gateEstInkLifts: "{drawM} m tinti · {lifts} pliiatsi tõstet",
+    gateBusyDrawing: "Joonistus on juba pooleli. Palun oota, kuni see valmib.",
+    gateNotReady: "Plotter ei ole valmis ({st}). Kui pead selle peatama või taaskäivitama, vaata Settings menüüst.",
+    gateNoSdCard: "⚠ Plotteris ei tuvastatud SD-kaarti. Joonistamine kasutab SD-kaarti — kontrolli, et kaart oleks sees ja plotter pärast selle sisestamist taaskäivitatud.",
+    gateSetStudioAddress: "Määra kõigepealt stuudio aadress Settings menüüs.",
+    gateSendFailed: "Joonistust ei õnnestunud plotterisse saata ({msg}).",
+    plotSdCardProblem: "⚠ SD-kaardi probleem: {msg}. Joonistamine ei alanud — kontrolli SD-kaarti.",
+    plotSending: "Saadan plotterisse…",
+    plotDrawing: "Joonistan…",
+    plotDrawingPutDown: "Joonistan… (võid telefoni käest panna)",
+    plotLinkDropped: "Plotter joonistab — telefoni ühendus katkes (ühendan uuesti…)",
+    plotDone: "Joonistus peaks olema valmis — võta see kätte, kui pliiats on liikumise lõpetanud.",
+    plotDoneDirect: "Valmis.",
+    plotStoppedAlarm: "Peatatud (häire).",
+    plotFailedPrefix: "Ebaõnnestus: {msg}",
+  },
+};
+let currentLang = 'en';   // always starts English -- no localStorage, no navigator.language detect
+
+function t(key, vars) {
+  let s = (I18N[currentLang] || I18N.en)[key] ?? I18N.en[key] ?? key;
+  if (vars) for (const k in vars) s = s.replace('{' + k + '}', vars[k]);
+  return s;
+}
+function plotDoneMsg() { return t('plotDone'); }
+
+function applyStaticTranslations() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+}
+function updateLangFlagsUI() {
+  $('lang-en').classList.toggle('active', currentLang === 'en');
+  $('lang-et').classList.toggle('active', currentLang === 'et');
+}
+function setLang(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang;
+  applyStaticTranslations();
+  updateLangFlagsUI();
+  // Poem mode is English-only regardless (handwriting engine has no Estonian letters) --
+  // hide the option entirely rather than offer a mode that can't follow the chosen language.
+  $('pick-poem').style.display = (lang === 'et') ? 'none' : '';
+}
+$('lang-en').addEventListener('click', () => setLang('en'));
+$('lang-et').addEventListener('click', () => setLang('et'));
+
 const GEN_TIMEOUT_MS = 180000;
 // The /*_start handshake should return almost instantly (it just starts a
 // background job), so GEN_TIMEOUT_MS is plenty. The job it starts has no fixed
@@ -1417,7 +1616,10 @@ let gcodeStats = null;
 // shown before the pen actually is); PLOT_DONE_MSG is neutral on purpose — it is a guess,
 // not a report from the plotter.
 const DRAW_EST_BIAS = 1.2;
-const PLOT_DONE_MSG = 'Drawing should be finished — collect it once the pen has stopped.';
+// PLOT_DONE_MSG is now the translated plotDoneMsg() (defined in the I18N block above) --
+// kept as a live function call, not a baked-in const, so it reflects whatever language was
+// active for this draw (language can't change mid-draw anyway -- the flags only live on
+// #mode-screen, which is hidden behind the gate/plot-overlay modals for the whole flow).
 // July 2026: end-stop switches + homing. HIGH_LIFT_CMD/MACHINE_Y_MAX mirror config.py's
 // constants of the same name -- keep both in sync if the axis is ever re-measured.
 const HIGH_LIFT_CMD = 'M3 S2000';
@@ -1551,7 +1753,7 @@ function genOverlayStart() {
   overlayMode = 'gen';
   genCancelled = false;
   $('plot-status').classList.remove('err-text');
-  $('plot-status').textContent = 'Creating your drawing…';
+  $('plot-status').textContent = t('genCreating');
   $('plot-cancel').style.display = '';      // Cancel aborts the generation request
   $('plot-cancel').disabled = false;
   $('plot-done').style.display = 'none';
@@ -1687,7 +1889,7 @@ function updateProcessBtn() {
     : currentMode === 'desc' ? ($('desc-input').value.trim().length > 0)
     : currentMode === 'poem' ? ($('poem-name').value.trim().length > 0 && poemAnsweredCount() >= POEM_MIN_ANSWERED)
     : false;
-  $('process-btn').textContent = currentMode === 'poem' ? 'Create poem' : 'Create drawing';
+  $('process-btn').textContent = currentMode === 'poem' ? 'Create poem' : t('createDrawing');
   $('process-btn').style.display = currentMode ? 'block' : 'none';
   $('process-btn').disabled = !ready || appBlocked;
 }
@@ -1703,7 +1905,7 @@ function evaluateReadiness() {
     appBlocked = false; return;
   }
   let issue = null, info = false, unlock = false;
-  if (lastStudioOk === null || plotterState === 'unknown') { issue = 'Checking connection…'; info = true; }
+  if (lastStudioOk === null || plotterState === 'unknown') { issue = t('issueChecking'); info = true; }
   else if (studioReachable === false) {
     // The Pi bridge is powered FROM the plotter (see Settings > Pi bridge power / CLAUDE.md
     // "Pi bridge (USB)") — right after power-on, "unreachable" almost always just means it's
@@ -1711,23 +1913,21 @@ function evaluateReadiness() {
     // treat it as a genuine issue if it's still not up.
     const elapsed = studioUnreachableSinceTs ? (Date.now() - studioUnreachableSinceTs) : 0;
     const stillBooting = studioUnreachableSinceTs && elapsed < STUDIO_BOOT_GRACE_MS;
-    issue = stillBooting
-      ? 'Waiting for the Pi bridge to start up…'
-      : 'Can’t reach the Pi bridge. Check it’s powered on and connected.';
+    issue = stillBooting ? t('issueBridgeBooting') : t('issueBridgeUnreachable');
     info = stillBooting;
   }
-  else if (lastStudioOk === false) issue = 'Pi bridge is reachable but not fully set up (no API key) — check its .env.';
-  else if (plotterState === 'offline') issue = 'Can’t reach the plotter. Check it’s powered on.';
+  else if (lastStudioOk === false) issue = t('issueBridgeNoKey');
+  else if (plotterState === 'offline') issue = t('issuePlotterOffline');
   else if (plotterState === 'Alarm') {
     // Alarm at boot is routine now (must_home:true in config.yaml) -- not a fault to
     // clear with $X, but the machine waiting to be homed. `unlock` is kept as the
     // internal flag name (drives the same banner button slot) but now triggers $H.
-    issue = 'Plotter needs homing.'; unlock = true;
+    issue = t('issueNeedsHoming'); unlock = true;
   }
   else if (BUSY_PLOTTER_STATES.has(plotterState)) {
     issue = (externalPlotPct != null)
-      ? ('Plotter is currently in use (~' + Math.round(externalPlotPct) + '% done).')
-      : 'Plotter is busy with another job.';
+      ? t('issueBusyPct', { pct: Math.round(externalPlotPct) })
+      : t('issueBusy');
   }
 
   appBlocked = !!issue;
@@ -1749,7 +1949,7 @@ function evaluateReadiness() {
 
 $('issue-unlock').addEventListener('click', async () => {
   $('issue-unlock').disabled = true;
-  $('issue-text').textContent = 'Homing…';
+  $('issue-text').textContent = t('issueHoming');
   // No follow-up M3 S0 needed -- config.yaml's after_homing macro already raises the
   // pen to the high idle lift (M3 S2000) once $H completes. Re-assert the calibrated
   // origin right after, in case it was ever clobbered (see restoreCalibratedOrigin).
@@ -1781,7 +1981,7 @@ $('file-input').addEventListener('change', e => { if (e.target.files[0]) handleF
 
 function handleFile(file) {
   if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
-    alert('Please choose an image.'); return;
+    alert(t('alertChooseImage')); return;
   }
   const reader = new FileReader();
   reader.onload = ev => {
@@ -1791,14 +1991,14 @@ function handleFile(file) {
     // instead of a broken image. Upload still works — the server converts/downsizes.
     img.style.display = '';
     img.onload = () => { img.style.display = ''; $('source-name').textContent = file.name; };
-    img.onerror = () => { img.style.display = 'none'; $('source-name').textContent = '✓ Photo selected — ' + file.name; };
+    img.onerror = () => { img.style.display = 'none'; $('source-name').textContent = t('photoSelectedFallback', { name: file.name }); };
     img.src = sourceDataURL;
     $('source-name').textContent = file.name;
     $('source-wrap').style.display = 'block';
     resetActionSlot();
     updateProcessBtn();
   };
-  reader.onerror = () => alert('Could not read that photo.');
+  reader.onerror = () => alert(t('alertPhotoReadFail'));
   reader.readAsDataURL(file);
 }
 
@@ -2309,9 +2509,9 @@ $('process-btn').addEventListener('click', async () => {
   const fromPhoto = currentMode === 'photo';
   const fromDesc = currentMode === 'desc';
   const fromPoem = currentMode === 'poem';
-  if (fromPhoto && !sourceDataURL) { alert('Choose a photo first.'); return; }
+  if (fromPhoto && !sourceDataURL) { alert(t('alertChoosePhoto')); return; }
   const prompt = fromDesc ? $('desc-input').value.trim() : '';
-  if (fromDesc && !prompt) { alert('Write a description first.'); return; }
+  if (fromDesc && !prompt) { alert(t('alertWriteDescription')); return; }
   let poemName = '', poemAnswers = [];
   if (fromPoem) {
     poemName = $('poem-name').value.trim();
@@ -2403,7 +2603,7 @@ $('process-btn').addEventListener('click', async () => {
 });
 
 $('result-send').addEventListener('click', () => {
-  if (!gcodeText) { alert('Make a drawing first.'); return; }
+  if (!gcodeText) { alert(t('alertMakeDrawingFirst')); return; }
   closeModal('plot-overlay');
   resetResultScreen();
   openGate();
@@ -2440,7 +2640,7 @@ async function prepBedForLoading() {
   };
   $('start-btn').disabled = true;
   try {
-    setStatus('Checking plotter…');
+    setStatus(t('gateCheckingPlotter'));
     const st = await fetchPlotterStatus();
     if (myGen !== gatePrepGen) return;
     if (st === 'Alarm' || st === 'Idle') {
@@ -2448,27 +2648,27 @@ async function prepBedForLoading() {
       // (stepping.idle_ms: 250, July 2026), so a hand-moved axis leaves FluidNC
       // still believing its old position with no way to notice the difference.
       // Re-homing on every gate-open is the only way to catch that.
-      setStatus('Homing…');
+      setStatus(t('issueHoming'));
       await plotterCmd('$H');
       if (myGen !== gatePrepGen) return;
       await restoreCalibratedOrigin();
     } else {
       // Busy/offline -- surface it, but don't block reading the gate; #start-btn's own
       // click handler re-checks status before actually sending the job.
-      setStatus('Plotter is ' + st + ' — Start will re-check before sending.', true);
+      setStatus(t('gateBusyRecheck', { st }), true);
       return;
     }
     if (myGen !== gatePrepGen) return;
-    setStatus('Raising pen…');
+    setStatus(t('gateRaisingPen'));
     await plotterCmd(HIGH_LIFT_CMD);
     if (myGen !== gatePrepGen) return;
-    setStatus('Moving bed out for loading…');
+    setStatus(t('gateMovingBed'));
     await plotterCmd('G53 G0 Y' + MACHINE_Y_MAX.toFixed(3));
     if (myGen !== gatePrepGen) return;
-    setStatus('Ready — load the paper and frame.');
+    setStatus(t('gateReady'));
     $('start-btn').disabled = false;
   } catch (e) {
-    setStatus('Could not prepare the plotter: ' + e.message, true);
+    setStatus(t('gatePrepFailed', { msg: e.message }), true);
   }
 }
 
@@ -2481,8 +2681,8 @@ function openGate() {
   // injection if the studio ever returns strings here.
   const s = gcodeStats || {};
   const mins = Number(s.est_minutes), drawM = Number(s.draw_m), lifts = Number(s.pen_lifts) || 0;
-  let estHtml = 'Estimated drawing time: <strong>' + (s.est_minutes != null && isFinite(mins) ? '~' + mins + ' min' : 'unknown') + '</strong>';
-  if (s.draw_m != null && isFinite(drawM)) estHtml += '<br><span style="color:var(--ink3);font-size:11px;">' + drawM + ' m of ink · ' + lifts + ' pen lifts</span>';
+  let estHtml = t('gateEstLabel') + '<strong>' + (s.est_minutes != null && isFinite(mins) ? t('gateEstMinutes', { mins }) : t('gateEstUnknown')) + '</strong>';
+  if (s.draw_m != null && isFinite(drawM)) estHtml += '<br><span style="color:var(--ink3);font-size:11px;">' + t('gateEstInkLifts', { drawM, lifts }) + '</span>';
   $('gate-est').innerHTML = estHtml;
   showGateStep(1);
   openModal('gate-modal');
@@ -2514,14 +2714,14 @@ $('start-btn').addEventListener('click', async () => {
 
   const st = await fetchPlotterStatus();
   if (st === 'Run' || st === 'Hold' || st === 'Jog') {
-    $('gate-err').textContent = 'A drawing is already in progress. Please wait until it finishes.';
+    $('gate-err').textContent = t('gateBusyDrawing');
     $('start-btn').disabled = false;
     return;
   }
   // Relay mode needs an Idle plotter; direct mode clears Alarm itself ($X) so we
   // only block when it's actually busy (handled above).
   if (!PL.mode && st !== 'Idle') {
-    $('gate-err').textContent = 'Plotter is not ready (' + st + '). Check settings if you need to stop or restart it.';
+    $('gate-err').textContent = t('gateNotReady', { st });
     $('start-btn').disabled = false;
     return;
   }
@@ -2530,7 +2730,7 @@ $('start-btn').addEventListener('click', async () => {
   // card over WiFi, then $SD/Run so it draws autonomously — you can then disconnect.
   if (PL.mode) {
     if (!(await plSdAvailable())) {
-      $('gate-err').textContent = '⚠ No SD card detected on the plotter. Plotting uses the SD card — check the card is inserted and the plotter was restarted after inserting it.';
+      $('gate-err').textContent = t('gateNoSdCard');
       $('start-btn').disabled = false;
       return;
     }
@@ -2539,7 +2739,7 @@ $('start-btn').addEventListener('click', async () => {
     try {
       await plSdRun(gcodeText);
     } catch (e) {
-      finishPlotting('⚠ SD card problem: ' + e.message + '. Drawing not started — check the SD card.', true);
+      finishPlotting(t('plotSdCardProblem', { msg: e.message }), true);
       return;
     }
     startSdMonitor();          // job is now running on the plotter; phone may disconnect
@@ -2553,7 +2753,7 @@ $('start-btn').addEventListener('click', async () => {
   // whatever position that left the pen at would be wrong.
   const base = studioBase();
   if (!base) {
-    $('gate-err').textContent = 'Set the studio address in Settings first.';
+    $('gate-err').textContent = t('gateSetStudioAddress');
     $('start-btn').disabled = false;
     return;
   }
@@ -2567,7 +2767,7 @@ $('start-btn').addEventListener('click', async () => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
   } catch (e) {
-    $('gate-err').textContent = 'Could not send the drawing to the plotter (' + e.message + ').';
+    $('gate-err').textContent = t('gateSendFailed', { msg: e.message });
     $('start-btn').disabled = false;
     return;
   }
@@ -2621,7 +2821,7 @@ function finishPlotting(msg, isError) {
   // Self-calibration (see the DRAW_BIAS_KEY comment above): only a genuine time-estimate
   // "should be finished" outcome is worth checking — never Stop/cancel/upload-failure,
   // which aren't a signal about whether the estimate was long enough.
-  const genuineFinish = !isError && msg === PLOT_DONE_MSG;
+  const genuineFinish = !isError && msg === plotDoneMsg();
   if (genuineFinish) pendingDrawBiasCheck = true;
   // Reverse placement animation (frame off, then paper out) -- only on a real finish,
   // never after Stop/cancel/error (nothing was actually removed from the bed then).
@@ -2636,7 +2836,7 @@ function finishPlotting(msg, isError) {
 function progressStart() {
   overlayMode = 'plot';
   $('plot-status').classList.remove('err-text');
-  $('plot-status').textContent = 'Sending to plotter…';
+  $('plot-status').textContent = t('plotSending');
   $('gen-warn').style.display = 'none';   // generation is over by the time we plot
   $('plot-cancel').style.display = '';
   $('plot-cancel').disabled = false;
@@ -2648,18 +2848,18 @@ function progressStart() {
 }
 function progressSet(pct) {
   ringSet(pct);
-  $('plot-status').textContent = 'Drawing…';
+  $('plot-status').textContent = t('plotDrawing');
 }
 function startSdMonitor() {
   // The plotter is now drawing from its SD card on its own. If the phone stays
   // connected we poll status for % + completion; if it disconnects, the draw just
   // continues and the phone simply stops tracking it.
-  $('plot-status').textContent = 'Drawing… (you can put the phone down)';
+  $('plot-status').textContent = t('plotDrawingPutDown');
   let sawRun = false;
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(async () => {
     const st = await plStatus();                 // sends ? (reconnects if needed)
-    if (st === 'offline') { $('plot-status').textContent = 'Plotter drawing — phone link dropped (reconnecting…)'; return; }
+    if (st === 'offline') { $('plot-status').textContent = t('plotLinkDropped'); return; }
     if (st === 'Run' || st === 'Hold' || st === 'Jog' || PL.sdPercent != null) sawRun = true;
     // FluidNC's SD:% is how far it has READ the file, not how much motion has
     // actually been executed — reading/queuing lines is far faster than drawing
@@ -2668,8 +2868,8 @@ function startSdMonitor() {
     // completion (below, via the Idle transition), not from this metric alone.
     if (PL.sdPercent != null) progressSet(Math.min(99, Math.round(PL.sdPercent)));
     updatePauseBtn();
-    if (sawRun && st === 'Idle') { ringSet(100); finishPlotting('Done.', false); }
-    else if (st === 'Alarm') finishPlotting('Stopped (alarm).', true);
+    if (sawRun && st === 'Idle') { ringSet(100); finishPlotting(t('plotDoneDirect'), false); }
+    else if (st === 'Alarm') finishPlotting(t('plotStoppedAlarm'), true);
   }, 1500);
 }
 function beginProgress() {
@@ -2693,15 +2893,15 @@ function beginProgress() {
     }
     if (p && (p.running || p.done || p.error)) {
       if (p.total) progressSet(Math.min(99, Math.round(100 * p.sent / p.total)));
-      if (p.error) { finishPlotting('Failed: ' + p.error, true); return; }
-      if (p.done) { ringSet(100); finishPlotting(PLOT_DONE_MSG, false); return; }
+      if (p.error) { finishPlotting(t('plotFailedPrefix', { msg: p.error }), true); return; }
+      if (p.done) { ringSet(100); finishPlotting(plotDoneMsg(), false); return; }
       return;
     }
     // No usable proxy record this tick — estimate locally rather than reaching for the
     // plotter's own status.
     const elapsed = Date.now() - startTs;
     progressSet(Math.min(99, Math.round(99 * elapsed / estMs)));
-    if (elapsed >= estMs) { ringSet(100); finishPlotting(PLOT_DONE_MSG, false); }
+    if (elapsed >= estMs) { ringSet(100); finishPlotting(plotDoneMsg(), false); }
   }, 1500);
 }
 
